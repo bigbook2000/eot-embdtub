@@ -8,7 +8,7 @@ EOT边缘终端EOTBox嵌入式应用STM32模块代码。硬件使用意法半导
 若需要对应的硬件可以联系。
 
 #### 软件架构
-参考wiki详细说明
+参考wiki详细说明[输入链接说明](https://gitee.com/bigbook2000/eot-embdtub.wiki.git)
 
 #### 参与贡献
 
