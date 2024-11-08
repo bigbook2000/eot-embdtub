@@ -122,7 +122,7 @@ int F_CheckModbusRTU(TDevInfo* pDevInfo, uint8_t* pData, int nLength)
 				memcpy(pDevInfo->data, &pData[i+1], len);
 
 				//_T("设备数据");
-				//_Tmb(pDevInfo->data, pDevInfo->data_count);
+				_Tmb(pDevInfo->data, pDevInfo->data_count);
 			}
 
 			// i 为长度所在的索引，+1即为数据长度，再+2校验位
@@ -190,7 +190,7 @@ static void DMAUpdate(EOTDMAInfo* pDMAInfo, EOTBuffer* pBuffer)
 	}
 
 	if (ret <= 0) return;
-	_Tmb(pBuffer->buffer, ret);
+	//_Tmb(pBuffer->buffer, ret);
 }
 
 void F_UART_DMA_Init(void)

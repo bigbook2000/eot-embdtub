@@ -35,10 +35,14 @@
 #define DMA_GPRS				DMA2
 #define DMA_STREAM_GPRS			LL_DMA_STREAM_1
 
-#define GPIO_EC_RST 			GPIOD
-#define PIN_EC_RST 				LL_GPIO_PIN_14
-#define GPIO_EC_DTR 			GPIOD
-#define PIN_EC_DTR 				LL_GPIO_PIN_15
+//#define GPIO_EC_RST 			GPIOD
+//#define PIN_EC_RST 				LL_GPIO_PIN_14
+//#define GPIO_EC_DTR 			GPIOD
+//#define PIN_EC_DTR 				LL_GPIO_PIN_15
+
+// 拉高使能
+#define GPIO_EC_RST 			GPIOC
+#define PIN_EC_RST 				LL_GPIO_PIN_8
 
 
 // 记录模块最后一次消息时间戳，避免卡死
@@ -48,8 +52,8 @@ static uint64_t s_LastActiveTick = 0L;
 // DMA信息
 static EOTDMAInfo s_GprsDMAInfo;
 
-// 有效数据缓存，避免交换超过1000的数据
-#define GPRS_DATA_SIZE	1024
+// 有效数据缓存，避免交换超过2000的数据
+#define GPRS_DATA_SIZE	2048
 D_STATIC_BUFFER_DECLARE(s_GprsDMABuffer, GPRS_DATA_SIZE)
 // 二级缓存，用于检查首尾
 D_STATIC_BUFFER_DECLARE(s_GprsRecvBuffer, GPRS_DATA_SIZE)
@@ -89,6 +93,7 @@ EOTGprsCmd* EON_Gprs_LastCmd(void)
 	if (s_SemdLastItem == NULL) return NULL;
 	return s_SemdLastItem->data;
 }
+
 
 #define TIMER_ID_STATUS 14
 #define TIMER_ID_CMD 	19
@@ -153,6 +158,7 @@ void GprsCallbackAdd(EOTList* tpList, void* pCallback)
 			flag = 1;
 			break;
 		}
+		item = item->_next;
 	}
 
 	if (flag == 0)
@@ -198,13 +204,16 @@ void GprsCallbackCommandBefore(EOTGprsCmd* pCmd)
 }
 int GprsCallbackCommand(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 {
-	int ret = tBuffer->length;
+	int tret;
+	//int ret = tBuffer->length;
+	int ret = -1;
 
 	EOTListItem* item = s_ListGprsCallbackCommand._head;
 	while (item != NULL)
 	{
 		// 命令只能单一处理
-		ret = ((EOFuncGprsCommand)(item->data))(pCmd, tBuffer);
+		tret = ((EOFuncGprsCommand)(item->data))(pCmd, tBuffer);
+		if (tret >= 0) ret = tret;
 		item = item->_next;
 	}
 
@@ -269,6 +278,8 @@ void EON_Gprs_Callback(
 // 获取信号
 void EON_Gprs_Cmd_CSQ(void)
 {
+	if (s_GprsStatus != GPRS_STATUS_RUN) return;
+
 	EON_Gprs_SendCmdPut(EOE_GprsCmd_CSQ,
 			(uint8_t*)"AT+CSQ\r\n", -1,
 			GPRS_MODE_AT, GPRS_MODE_AT,
@@ -278,6 +289,8 @@ void EON_Gprs_Cmd_CSQ(void)
 // 获取时钟
 void EON_Gprs_Cmd_QLTS(void)
 {
+	if (s_GprsStatus != GPRS_STATUS_RUN) return;
+
 	EON_Gprs_SendCmdPut(EOE_GprsCmd_QLTS,
 			(uint8_t*)"AT+QLTS=1\r\n", -1,
 			GPRS_MODE_AT, GPRS_MODE_AT,
@@ -293,6 +306,7 @@ int EON_Gprs_DataPut(uint8_t* pData, int nLength)
 
 void EON_Gprs_DataGet(int nChannel, int nCount)
 {
+	_T("设置接收[%d] = %d", nChannel, nCount);
 	// 直接获取指定长度的数据
 	s_CmdRecvChannel = nChannel;
 	s_CmdRecvCount = nCount;
@@ -359,7 +373,7 @@ EOTGprsCmd* EON_Gprs_SendCmdPut(
 		int8_t nSendMode, int8_t nRecvMode,
 		int16_t nTimeout, int8_t nTryCount, int8_t nReset)
 {
-	_T("HeapSize = %u", xPortGetFreeHeapSize());
+	_T("追加命令[%d]: HeapSize = %u, List = %d", nCmdId, xPortGetFreeHeapSize(), s_ListCmdSend.count);
 
 	// 从堆上分配空间
 	int len = nCmdLen;
@@ -391,6 +405,7 @@ EOTGprsCmd* EON_Gprs_SendCmdPut(
 
 	cmd->id = nCmdId;
 	cmd->tag = 0;
+
 	cmd->send_mode = nSendMode;
 	cmd->recv_mode = nRecvMode;
 	cmd->reset = nReset;
@@ -444,6 +459,7 @@ void EON_Gprs_Power(void)
 {
 	_T("Reset GPRS");
 
+	s_GprsStatus = GPRS_STATUS_NONE;
 	s_LastActiveTick = 0L;
 
 	// 清除接收缓存
@@ -457,8 +473,7 @@ void EON_Gprs_Power(void)
 
 	osDelay(500);
 
-	LL_GPIO_ResetOutputPin(GPIO_EC_RST, PIN_EC_RST);
-
+	LL_GPIO_SetOutputPin(GPIO_EC_RST, PIN_EC_RST);
 	// 拉低2s
 	uint8_t i;
 	for (i=0; i<4; i++)
@@ -466,7 +481,7 @@ void EON_Gprs_Power(void)
 		_T("..");
 		osDelay(500);
 	}
-	LL_GPIO_SetOutputPin(GPIO_EC_RST, PIN_EC_RST);
+	LL_GPIO_ResetOutputPin(GPIO_EC_RST, PIN_EC_RST);
 
 	_T("OK");
 
@@ -479,6 +494,11 @@ void EON_Gprs_Power(void)
 	//LL_mDelay(500);
 
 	s_GprsStatus = GPRS_STATUS_READY;
+
+	// 第一步发送AT命令
+	EON_Gprs_SendCmdPut(EOE_GprsCmd_AT,
+		(uint8_t*)"AT\r\n", -1,
+		GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_MORE, GPRS_CMD_RESET);
 }
 
 // 重启整个系统
@@ -501,7 +521,8 @@ static int OnGprsCmd_AT(EOTBuffer* tBuffer)
 	if (CHECK_STR("OK"))
 	{
 		// 关闭回显
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_ATE0, (uint8_t*)"ATE0\r\n",
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_ATE0,
+				(uint8_t*)"ATE0\r\n",
 				-1, GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_NORMAL, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 
 		return 0;
@@ -512,10 +533,12 @@ static int OnGprsCmd_AT(EOTBuffer* tBuffer)
 
 static int OnGprsCmd_ATE0(EOTBuffer* tBuffer)
 {
-	if (CHECK_STR("ATE0"))
+	//if (CHECK_STR("ATE0") || CHECK_STR("OK"))
+	if (CHECK_STR("OK"))
 	{
 		// 获取SIM卡状态
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_CPIN, (uint8_t*)"AT+CPIN?\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_CPIN,
+				(uint8_t*)"AT+CPIN?\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_MORE, GPRS_CMD_RESET);
 		return 0;
 	}
@@ -529,7 +552,8 @@ static int OnGprsCmd_CPIN(EOTBuffer* tBuffer)
 	if (CHECK_STR("OK"))
 	{
 		// 用于返回 ME 的国际移动设备识别码（IMEI 号）
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_CGSN, (uint8_t*)"AT+CGSN\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_CGSN,
+				(uint8_t*)"AT+CGSN\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_NORMAL, GPRS_TRY_MORE, GPRS_CMD_RESET);
 
 		return 0;
@@ -544,7 +568,8 @@ static int OnGprsCmd_CGSN(EOTBuffer* tBuffer)
 	if (CHECK_STR("OK"))
 	{
 		// 查询ICCID
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_CCID, (uint8_t*)"AT+CCID\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_CCID,
+				(uint8_t*)"AT+CCID\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_NORMAL, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 		return 0;
 	}
@@ -577,7 +602,8 @@ static int OnGprsCmd_CCID(EOTBuffer* tBuffer)
 		// 3 禁用 ME 接收射频信号
 		// 4 禁用 ME 发送和接收射频信号功能
 		// 5 禁用(U)SIM
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_CFUN_1, (uint8_t*)"AT+CFUN=1\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_CFUN_1,
+				(uint8_t*)"AT+CFUN=1\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_NORMAL, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 
 		return 0;
@@ -604,7 +630,8 @@ static int OnGprsCmd_CFUN_1(EOTBuffer* tBuffer)
 	if (CHECK_STR("OK"))
 	{
 		// 查询运营商
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_COPS, (uint8_t*)"AT+COPS?\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_COPS,
+				(uint8_t*)"AT+COPS?\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 
 		return 0;
@@ -632,7 +659,8 @@ static int OnGprsCmd_COPS(EOTBuffer* tBuffer)
 	_T("Cops: %s [%d]\r\n", ispStr, s_ISPCode);
 
 	// 注册PS业务
-	EON_Gprs_SendCmdPut(EOE_GprsCmd_CGREG, (uint8_t*)"AT+CGREG?\r\n", -1,
+	EON_Gprs_SendCmdPut(EOE_GprsCmd_CGREG,
+			(uint8_t*)"AT+CGREG?\r\n", -1,
 			GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_MORE, GPRS_CMD_RESET);
 
 	return 0;
@@ -673,8 +701,9 @@ static int OnGprsCmd_QICSGP(EOTBuffer* tBuffer)
 {
 	if (CHECK_STR("OK"))
 	{
-		// 激活PDP场景
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIACT, (uint8_t*)"AT+QIACT=1\r\n", -1,
+		// 先反激活PDP场景
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIDEACT,
+				(uint8_t*)"AT+QIDEACT=1\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 
 		return 0;
@@ -685,10 +714,12 @@ static int OnGprsCmd_QICSGP(EOTBuffer* tBuffer)
 
 static int OnGprsCmd_QIACT(EOTBuffer* tBuffer)
 {
+	_T("OnGprsCmd_QIACT: %s", tBuffer->buffer);
 	if (CHECK_STR("OK"))
 	{
 		// 获取IP地址
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_CGPADDR, (uint8_t*)"AT+CGPADDR=1\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_CGPADDR,
+				(uint8_t*)"AT+CGPADDR=1\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_NORMAL, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 
 		return 0;
@@ -726,13 +757,12 @@ static int OnGprsCmd_CGPADDR(EOTBuffer* tBuffer)
 
 static int OnGprsCmd_QIDEACT(EOTBuffer* tBuffer)
 {
-	// 重新走流程
-
 	if (CHECK_STR("OK"))
 	{
-		// 获取SIM卡状态
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_CPIN, (uint8_t*)"AT+CPIN?\r\n", -1,
-				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_MORE, GPRS_CMD_RESET);
+		// 重新激活
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIACT,
+				(uint8_t*)"AT+QIACT=1\r\n", -1,
+				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 
 		return 0;
 	}
@@ -882,7 +912,8 @@ static int GprsEventDispacher(EOTBuffer* tBuffer)
 	if (strstr(qiurcStr, "pdpdeact"))
 	{
 		// 反激活PDP场景
-		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIDEACT, (uint8_t*)"AT+QIDEACT=1\r\n", -1,
+		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIDEACT,
+				(uint8_t*)"AT+QIDEACT=1\r\n", -1,
 				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 	}
 	else
@@ -969,42 +1000,58 @@ static int GprsParseDataLine(int nLine, EOTGprsCmd* pCmd, EOTBuffer* tRecvBuffer
 	// 直接接收数据模式
 	if (s_CmdRecvCount > 0)
 	{
-		_Tmb(s_GprsRecvBuffer.buffer, s_GprsRecvBuffer.length);
-		_T("接收数据: %d/%d", s_CmdRecvCount, tRecvBuffer->length);
-		if (s_CmdRecvCount > tRecvBuffer->length)
+		//_Tmb(tRecvBuffer->buffer, tRecvBuffer->length);
+		_T("直接模式: %d/%d, BufferSize = %d", tRecvBuffer->length, s_CmdRecvCount, s_GprsRecvData.size);
+
+		// DMA每次处理的数据可能少于EC模块缓存的长度
+		// 如果数据非常多，比如文件，分块处理，收到多少处理多少
+		// 如果EC模块缓存较小，则等待一次全部取出
+		int nCount = s_CmdRecvCount;
+		if (s_CmdRecvCount > s_GprsRecvData.size)
 		{
-			// 数量不足，继续等待
-			return -1;
+			nCount = s_GprsRecvData.size;
 		}
 
-		// 取出指定长度的数据
-		ret = EOS_Buffer_Pop(tRecvBuffer, (char*)s_GprsRecvData.buffer, s_CmdRecvCount);
+		// 数量不足，继续等待
+		if (nCount > tRecvBuffer->length)
+		{
+			return -1;
+		}
+		ret = EOS_Buffer_Pop(tRecvBuffer, (char*)s_GprsRecvData.buffer, nCount);
 		if (ret < 0) return -1;
-		s_GprsRecvData.length = ret;
 
+		s_GprsRecvData.length = ret;
 		GprsCallbackData(s_CmdRecvChannel, &s_GprsRecvData);
 
 		// 数据接收完成，自动重置
-		s_CmdRecvCount = 0;
+		s_CmdRecvCount -= ret;
+		_T("接收处理: %d/%d, Retain = %d", tRecvBuffer->length, ret, s_CmdRecvCount);
+		if (s_CmdRecvCount < 0)
+		{
+			// 表示有异常，数量对不上
+			s_CmdRecvCount = 0;
+		}
 
 		// EOS_Buffer_Pop已经取出数据，无需返回长度，继续下一行命令
-		return 0;
+		// 返回-1，继续处理
+		return -1;
 	}
 	else
 	{
 		// 查找换行标识，只有AT命令返回换行符
-		if (s_GprsRecvBuffer.length < 2) return -1;
+		if (tRecvBuffer->length < 2) return -1;
 
-		_Tmb(s_GprsRecvBuffer.buffer, s_GprsRecvBuffer.length);
+		_T("命令模式: %d", s_GprsRecvData.length);
+		//_Tmb(tRecvBuffer->buffer, tRecvBuffer->length);
 		// 每次读取1行数据，buffer不包含换行符，ret包含换行符
-		ret = EOS_Buffer_PopReturn(&s_GprsRecvBuffer, (char*)s_GprsRecvData.buffer, s_GprsRecvData.size);
+		ret = EOS_Buffer_PopReturn(tRecvBuffer, (char*)s_GprsRecvData.buffer, s_GprsRecvData.size);
 		if (ret < 0)
 		{
 			// 特别处理发送标识，不带换行符
 			if (s_CheckCmdLength > 0)
 			{
 				_T("查找特殊断行符: [%d]%s", s_CheckCmdLength, s_CheckCmdFlag);
-				ret = EOS_Buffer_PopFlag(&s_GprsRecvBuffer, NULL, s_CheckCmdFlag);
+				ret = EOS_Buffer_PopFlag(tRecvBuffer, NULL, s_CheckCmdFlag);
 				if (ret < 0) return -1;
 
 				strcpy((char *)s_GprsRecvData.buffer, s_CheckCmdFlag);
@@ -1076,8 +1123,17 @@ static void GprsRecvProcess(uint64_t tick)
 	// 限制每次最大循环次数
 	for (i=0; i<16; i++)
 	{
+		if (s_GprsRecvBuffer.length <= 0) break;
+
+		_T("解析开始[%d]: %d(%d)", i, s_GprsRecvBuffer.length, s_CmdRecvCount);
+		_Tmb(s_GprsRecvBuffer.buffer, s_GprsRecvBuffer.length);
+
 		// 如果大于0，清除当前行继续
-		if (GprsParseDataLine(i, pCmd, &s_GprsRecvBuffer) <= 0) break;
+		if (GprsParseDataLine(i, pCmd, &s_GprsRecvBuffer) < 0)
+		{
+			_T("解析终止[%d]: %d(%d)", i, s_GprsRecvBuffer.length, s_CmdRecvCount);
+			break;
+		}
 	}
 }
 
@@ -1126,6 +1182,8 @@ static void GprsSendProcess(uint64_t tick)
 
 	EOTGprsCmd* pCmd = s_SemdLastItem->data;
 	if (pCmd == NULL) return;
+
+	_T("取出命令[%d]: HeapSize = %u, List = %d", pCmd->id, xPortGetFreeHeapSize(), s_ListCmdSend.count);
 
 	// 重置计数器
 	EOS_Timer_StartDelay(&s_TimerCmdTimeout, pCmd->delay_max, pCmd->try_max, NULL);
@@ -1182,10 +1240,6 @@ void EON_Gprs_Init(void)
 	osDelay(50);
 
 	EON_Gprs_Power();
-
-	// 第一步发送AT命令
-	EON_Gprs_SendCmdPut(EOE_GprsCmd_AT, (uint8_t*)"AT\r\n", -1,
-			GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_MORE, GPRS_CMD_RESET);
 }
 
 // 独立GPRS线程处理

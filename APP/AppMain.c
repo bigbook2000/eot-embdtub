@@ -93,6 +93,8 @@ void OnApp_Input(void)
 		EOS_Buffer_Clear(tBuffer);
 	}
 
+	_T("接收输入 = %d", tBuffer->length);
+
 	// 只处理跳转
 	F_Cmd_Input(tBuffer, CMD_RESET);
 }
@@ -139,9 +141,6 @@ void f_Task_Net(void const * arg)
 
 		F_NetManager_Update(tick);
 
-		// 处理输入命令
-		OnApp_Input();
-
 		osDelay(10);
 	}
 }
@@ -163,12 +162,18 @@ void f_Task_Main(void const * arg)
 	{
 		EOB_Debug_Update();
 
+		// 处理输入命令
+		OnApp_Input();
+
 		osDelay(1);
 	}
 }
 
 void AppMain(void)
 {
+	//
+	// printf函数必须以换行符结束\n
+	//
 	EOB_Debug_Init();
 
 	_Pf("\r\n");
@@ -179,8 +184,7 @@ void AppMain(void)
 	_Pf("**   Copyright@eobject 2020\r\n");
 	_Pf("********************************\r\n\r\n");
 
-
-	osThreadDef(taskMain, f_Task_Main, osPriorityHigh, 0, 256);
+	osThreadDef(taskMain, f_Task_Main, osPriorityHigh, 0, 512);
 	taskMainHandle = osThreadCreate(osThread(taskMain), NULL);
 
 //	char* s = pvPortMalloc(CFG_BUFFER_SIZE);

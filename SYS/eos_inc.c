@@ -493,3 +493,21 @@ void EOG_KeyValue(char* sStr, int nLenStr,
 		return;
 	}
 }
+
+/**
+ * Ö±½Ó·Ö¸î£¬ÆÆ»µ
+ */
+void EOG_KeyValueChar(char* sStr, char cSplit, char** ppKey, char** ppVal)
+{
+	*ppKey = NULL;
+	*ppVal = NULL;
+
+	char* p = strchr(sStr, cSplit);
+	if (p == NULL) return;
+
+	*p = '\0';
+	*ppKey = sStr;
+
+	++p;
+	*ppVal = p;
+}

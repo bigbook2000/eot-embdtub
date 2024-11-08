@@ -9,6 +9,8 @@
 
 //#include "core_cm4.h"
 #include "stm32f4xx_ll_utils.h"
+#include "stm32f4xx_ll_usart.h"
+#include "stm32f4xx_ll_dma.h"
 
 #include "eob_debug.h"
 
@@ -41,6 +43,10 @@ void EOB_JumpApp(unsigned int nAddressApp)
 	// RAM 0x20020000
 	if ((uCode & 0x2FFC0000) == 0x20000000)
 	{
+		// 必须调用关闭串口，跳转后复用
+		EOB_Debug_DeInit();
+
+		//__set_FAULTMASK(1);
 		__disable_irq();
 		APP_MAIN fMain = (APP_MAIN)(*((__IO uint32_t*)(nAddressApp + sizeof(uint32_t))));
 

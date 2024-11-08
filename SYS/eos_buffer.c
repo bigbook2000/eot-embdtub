@@ -153,7 +153,8 @@ int EOS_Buffer_PushBuffer(EOTBuffer* tpBufferDst, EOTBuffer* tpBufferSrc)
 }
 
 /**
- * 返回数量
+ * 从tpBuffer中取出指定数量的nCount数据
+ * 返回实际数量
  */
 int EOS_Buffer_Pop(EOTBuffer* tpBuffer, char* pOut, int nCount)
 {

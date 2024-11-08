@@ -23,6 +23,8 @@
 // 每次最大读取1K
 #define TCP_RECV_MAX 	1024
 
+// 由于命令是串行，记录最后一次操作通道
+static uint8_t s_LastChannelId = 0xFF;
 
 // 发送数据队列
 static EOTList s_ListSendData;
@@ -116,6 +118,35 @@ static int OnTcpCmd_QIOPEN(EOTBuffer* tBuffer)
 	return 0;
 }
 
+// 处理关闭命令（手动）
+static int OnTcpCmd_QICLOSE(EOTBuffer* tBuffer)
+{
+	EOTConnect* hConnect;
+	if (CHECK_STR("OK"))
+	{
+		if (s_LastChannelId < 0 || s_LastChannelId >= MAX_TCP_CONNECT)
+		{
+			_T("*** 错误的连接通道[%d]", s_LastChannelId);
+			return 0;
+		}
+
+		hConnect = &s_TcpConnectList[s_LastChannelId];
+
+		if (hConnect->status != STATUS_NONE)
+		{
+			// 回调，注意不要循环调用
+			hConnect->close_cb(hConnect, 0);
+		}
+
+		// 处理状态
+		hConnect->status = STATUS_NONE;
+
+		return 0;
+	}
+
+	return tBuffer->length;
+}
+
 // 发送数据命令
 static int OnTcpCmd_QISEND(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 {
@@ -132,7 +163,7 @@ static int OnTcpCmd_QISEND(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 			return tBuffer->length;
 		}
 
-		_T("OnTcpCmd_QISEND[%d]: %d/%d", s_ListSendData.count, (int)pCmd->tag, (int)item->length);
+		_T("OnTcpCmd_QISEND[%d]: SEND %d/%d", s_ListSendData.count, (int)pCmd->tag, (int)item->length);
 
 		// 立即传输数据
 		// 发送的时候是DATA，回来是OK
@@ -143,6 +174,34 @@ static int OnTcpCmd_QISEND(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 	}
 	else if (CHECK_STR("SEND OK"))
 	{
+		// 返回0结束命令
+		return 0;
+	}
+	else if (CHECK_STR("ERROR"))
+	{
+		// ERROR 发送错误
+		// 关闭断行符
+		EON_Gprs_CheckCmdFlag("", 0);
+
+		// 实际传输数据
+		EOTListItem* item = EOS_List_Pop(&s_ListSendData);
+		if (item == NULL)
+		{
+			_D("未找到对应的数据");
+			return tBuffer->length;
+		}
+
+		_T("OnTcpCmd_QISEND[%d]: EORROR %d/%d, Length = %d",
+				s_LastChannelId, (int)pCmd->tag, (int)item->length,
+				s_ListSendData.count);
+
+		// 必须释放原始数据
+		EOS_List_ItemFree(&s_ListSendData, item, (EOFuncListItemFree)TcpSendDataFree);
+
+		// 关闭连接
+		EON_Tcp_Close(s_LastChannelId);
+
+		// 返回0结束命令
 		return 0;
 	}
 
@@ -174,7 +233,7 @@ static void TcpCmd_QIRD(uint8_t nChannel)
 }
 
 // 接收数据
-static void OnTcpCmd_QIRD(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
+static int OnTcpCmd_QIRD(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 {
 	// 命令指向的通道
 	uint8_t nChannel = (uint8_t)pCmd->tag;
@@ -188,7 +247,7 @@ static void OnTcpCmd_QIRD(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 	if (p == NULL)
 	{
 		_D("*** 错误的返回");
-		return;
+		return 0;
 	}
 
 	int len;
@@ -203,7 +262,7 @@ static void OnTcpCmd_QIRD(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 		{
 			len = hConnect->recv_cb(hConnect, hConnect->recv_buffer.buffer,  hConnect->recv_buffer.length);
 		}
-		return;
+		return 0;
 	}
 
 	// p为换行符所在位置
@@ -213,7 +272,7 @@ static void OnTcpCmd_QIRD(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 	if ((tBuffer->length - len) < nRead)
 	{
 		_D("*** TCP接收数据长度错误 : %d, %d, %d", tBuffer->length, len, nRead);
-		return;
+		return 0;
 	}
 
 	// 加入缓存
@@ -221,6 +280,8 @@ static void OnTcpCmd_QIRD(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 
 	// 继续读取
 	TcpCmd_QIRD(nChannel);
+
+	return 0;
 }
 /**
  * 实际发送命令之前响应
@@ -245,22 +306,27 @@ static int OnTcpCommand(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 	// TCP连接
 	case EOE_GprsCmd_QIOPEN:
 		return OnTcpCmd_QIOPEN(tBuffer);
+	// TCP关闭
+	case EOE_GprsCmd_QICLOSE:
+		return OnTcpCmd_QICLOSE(tBuffer);
 	// 发送数据
 	case EOE_GprsCmd_QISEND:
 		return OnTcpCmd_QISEND(pCmd, tBuffer);
 	// 接收数据
 	case EOE_GprsCmd_QIRD:
-		OnTcpCmd_QIRD(pCmd, tBuffer);
+		return OnTcpCmd_QIRD(pCmd, tBuffer);
+	default:
+		return -1;
 	}
 
 	return 0;
 }
 // 数据返回
-static void OnTcpData(uint8_t nChannel, EOTBuffer* tBuffer)
+static int OnTcpData(uint8_t nChannel, EOTBuffer* tBuffer)
 {
 	_T("TCP接收数据返回[%d]: %d", nChannel, tBuffer->length);
 
-	if (nChannel < 0 || nChannel >= MAX_TCP_CONNECT) return;
+	if (nChannel < 0 || nChannel >= MAX_TCP_CONNECT) return 0;
 
 	EOTConnect* hConnect = &s_TcpConnectList[nChannel];
 
@@ -269,10 +335,13 @@ static void OnTcpData(uint8_t nChannel, EOTBuffer* tBuffer)
 	{
 		hConnect->recv_cb(hConnect, tBuffer->buffer, tBuffer->length);
 	}
+
+	return 0;
 }
 static void OnTcpError(EOTGprsCmd* pCmd, int nError)
 {
 	// 如果出现错误，则完成
+	_T("*** TCP错误事件: [%d]%d", pCmd->id, nError);
 }
 
 static int OnTcpEvent(EOTBuffer* tBuffer)
@@ -392,6 +461,9 @@ void EON_Tcp_Open(uint8_t nChannel)
 	sprintf(sCmdText, "AT+QIOPEN=1,%d,\"TCP\",\"%s\",%d,0,1\r\n",
 			hConnect->channel, (const char*)hConnect->host, hConnect->port);
 
+	// 标记命令通道
+	s_LastChannelId = nChannel;
+
 	// 命令只重试1次，由外部逻辑处理重连问题
 	EON_Gprs_SendCmdPut(
 			EOE_GprsCmd_QIOPEN,
@@ -424,6 +496,9 @@ void EON_Tcp_SendData(uint8_t nChannel, uint8_t* pData, int nLength)
 	char sCmdText[GPRS_CMD_SIZE];
 	sprintf(sCmdText, "AT+QISEND=%d,%d\r\n", hConnect->channel, nLength);
 
+	// 标记命令通道
+	s_LastChannelId = nChannel;
+
 	EOTGprsCmd* pCmd = EON_Gprs_SendCmdPut(
 			EOE_GprsCmd_QISEND,
 			(uint8_t*)sCmdText, -1,
@@ -437,6 +512,17 @@ void EON_Tcp_SendData(uint8_t nChannel, uint8_t* pData, int nLength)
 // 关闭连接
 void EON_Tcp_Close(uint8_t nChannel)
 {
+	if (nChannel >= MAX_TCP_CONNECT)
+	{
+		_T("*** EON_Tcp_Close: %d/%d", nChannel, MAX_TCP_CONNECT);
+		return;
+	}
+
+	EOTConnect* hConnect = &s_TcpConnectList[nChannel];
+
+	// 标记命令通道
+	s_LastChannelId = nChannel;
+
 	// 发送关闭
 	char sCmdText[GPRS_CMD_SIZE];
 	sprintf(sCmdText, "AT+QICLOSE=%d\r\n", nChannel);
@@ -445,14 +531,7 @@ void EON_Tcp_Close(uint8_t nChannel)
 		EOE_GprsCmd_QICLOSE,
 		(uint8_t*)sCmdText, -1,
 		GPRS_MODE_AT, GPRS_MODE_AT,
-		GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_NORMAL);
-
-	// 回调，注意不要循环调用
-	EOTConnect* hConnect = &s_TcpConnectList[nChannel];
-	hConnect->close_cb(hConnect, 0);
-
-	// 处理状态
-	hConnect->status = STATUS_NONE;
+		GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
 }
 
 

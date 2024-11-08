@@ -24,4 +24,5 @@ $RECYCLE.BIN/
 *.lnk
 
 .vs
+.vscode/*
 /Debug

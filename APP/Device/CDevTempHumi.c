@@ -84,7 +84,7 @@ void DeviceTempHumi_Update(uint8_t nActiveId, TDevInfo* pDevInfo, uint64_t tick,
 	if (pRecvBuffer->length <= 0) return;
 
 	// Debug
-	_Tmb(pRecvBuffer->buffer, pRecvBuffer->length);
+	//_Tmb(pRecvBuffer->buffer, pRecvBuffer->length);
 
 	int nDataLen = F_CheckModbusRTU(pDevInfo, pRecvBuffer->buffer, pRecvBuffer->length);
 	if (nDataLen <= 0) return;

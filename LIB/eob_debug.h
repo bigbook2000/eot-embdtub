@@ -21,13 +21,15 @@
 //
 // 打开 _DEBUG_TASK_ 预定义 则依赖于FreeRTOS的任务管理
 //
-#define _DEBUG_TASK_
+// #define _DEBUG_TASK_
 
 // 超过DEBUG_LIMIT需手动清除缓存
 #define DEBUG_LIMIT		1000
 
 // 用于调试打印
 void EOB_Debug_Init(void);
+// IAP跳转时必须释放
+void EOB_Debug_DeInit(void);
 // 输入数据
 EOTBuffer* EOB_Debug_InputData(void);
 // DMA模式

@@ -22,10 +22,20 @@
 #define EO_TRUE 					0x1
 #define EO_FALSE 					0x0
 
+// 用于对齐，避免随意长度
 #define SIZE_8						8
+#define SIZE_16						16
+#define SIZE_24						24
 #define SIZE_32						32
+#define SIZE_40						40
+#define SIZE_64						64
+#define SIZE_80						80
+#define SIZE_100					100
+#define SIZE_160					160
 #define SIZE_128					128
 #define SIZE_256					256
+#define SIZE_512					512
+#define SIZE_1000					1000
 #define SIZE_1K						1024
 #define SIZE_4K						4096
 #define SIZE_8K						8192
@@ -33,6 +43,7 @@
 
 #define CHAR_BLANK(c)				((c)==' '||(c)=='\t'||(c)=='\v'||(c)=='\f'||(c)=='\r'||(c)=='\n')
 
+// 将单个16进制字符转成16进制数字，原地转换
 // 0x41(65) = A
 // 0x61(96) = a
 // 0x30(48) = 0
@@ -49,7 +60,7 @@ uint8_t EOG_CheckIP(char* sData, int nLength);
 char* EOG_Trim(char* sStr, int nLength);
 // 拆分IP地址和端口 xxx.xxxxx.xxx:0000
 int EOG_SplitIP(char* sData, int nLength, char* sHost, uint16_t* nPort);
-// Strin转换HEX
+// Strin转换HEX  'FFFFFFFF'->0xFFFFFFFF
 uint32_t EOG_String2Hex(char* sStr, int nLength);
 
 // 查找一行\r\n
@@ -64,5 +75,6 @@ int EOG_TrimChar(char* sData, int nLength, char cSplit);
 // 一分为二，注意长度
 void EOG_KeyValue(char* sStr, int nLenStr,
 		char cSplit, char cEnd, char* sKey, int nLenKey, char* sVal, int nLenVal);
+void EOG_KeyValueChar(char* sStr, char cSplit, char** ppKey, char** ppVal);
 
 #endif /* EOS_INC_H_ */

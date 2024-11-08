@@ -24,7 +24,7 @@
 
 static EOTList s_ListHttpConnect;
 
-//static int s_ConnectID = 0;
+static int s_ConnectID = 0;
 
 static void HttpClose(void)
 {
@@ -219,8 +219,11 @@ static void OnHttpCmd_QHTTPREAD(EOTBuffer* tBuffer)
 	HttpClose();
 }
 
-static void OnHttpCommand(int nCmdId, EOTBuffer* tBuffer)
+static int OnHttpCommand(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 {
+	if (pCmd == NULL) return -1;
+	int nCmdId = pCmd->id;
+
 	switch (nCmdId)
 	{
 	// 设置 HTTP PDP
@@ -270,20 +273,26 @@ static void OnHttpCommand(int nCmdId, EOTBuffer* tBuffer)
 	case EOE_HttpCmd_QHTTPREAD:
 		OnHttpCmd_QHTTPREAD(tBuffer);
 		break;
-	}
-}
-static void OnHttpData(EOTBuffer* tBuffer)
-{
 
+	default:
+		return -1;
+	}
+
+	return 0;
 }
-static void OnHttpError(int nCmdId, int nError)
+static int OnHttpData(uint8_t nChannel, EOTBuffer* tBuffer)
+{
+	return 0;
+}
+static void OnHttpError(EOTGprsCmd* pCmd, int nError)
 {
 	// 如果出现错误，则完成
 	HttpClose();
 }
 
-static void OnHttpEvent(char* sEvent, int nLength)
+static int OnHttpEvent(EOTBuffer* tBuffer)
 {
+	return 0;
 }
 
 int EON_Http_Init(void)
@@ -291,7 +300,9 @@ int EON_Http_Init(void)
 	EOS_List_Create(&s_ListHttpConnect);
 
 	// 注入回调
-	EON_Gprs_Callback(NULL, NULL,
+	EON_Gprs_Callback(
+			NULL,
+			NULL,
 			(EOFuncGprsError)OnHttpError,
 			NULL,
 			(EOFuncGprsCommand)OnHttpCommand,
@@ -301,47 +312,51 @@ int EON_Http_Init(void)
 	return 0;
 }
 
-//int EON_Http_Open(EOTConnect* hConnect)
-//{
-//	s_ConnectID++;
-//	hConnect->id = s_ConnectID;
-//	hConnect->last_tick = EOB_Tick_Get();
-//
-//	EOS_List_Push(&s_ListHttpConnect, hConnect->id, hConnect, sizeof(EOTConnect));
-//
-//	return 0;
-//}
-//
-//void EON_Http_Update(void)
-//{
-//	EOTListItem* itemConnect = EOS_List_Top(&s_ListHttpConnect);
-//	if (itemConnect == NULL) return;
-//
-//	EOTConnect* tConnect = (EOTConnect*)(itemConnect->data);
-//
-//	// 还未处理
-//	if (itemConnect->flag == HTTP_CONNECT_NONE)
-//	{
-//		itemConnect->flag = HTTP_CONNECT_SET;
-//
-//		_T("连接HTTP");
-//		EOB_Gprs_SendCmdPut(
-//				EOE_HttpCmd_QHTTPCFG_PDP,
-//				(uint8_t*)"AT+QHTTPCFG=\"contextid\",1\r\n", -1,
-//				GPRS_MODE_AT, GPRS_MODE_AT,
-//				GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_NORMAL);
-//	}
-//	else if (itemConnect->flag == HTTP_CONNECT_DONE)
-//	{
-//		// 已经完成，移除
-//		EOS_List_Pop(&s_ListHttpConnect);
-//	}
-//	else
-//	{
-//		// 超时
-//		if (EOB_Tick_Check(&(tConnect->last_tick), HTTP_TIMEOUT))
-//		{
-//			itemConnect->flag = HTTP_CONNECT_DONE;
-//		}
-//	}
-//}
+int EON_Http_Open(EOTConnect* hConnect)
+{
+	s_ConnectID++;
+	hConnect->channel = s_ConnectID;
+	hConnect->last_tick = EOB_Tick_Get();
+
+	EOS_List_Push(&s_ListHttpConnect, hConnect->channel, hConnect, sizeof(EOTConnect));
+
+	return 0;
+}
+
+void EON_Http_Update(uint64_t tick)
+{
+	EOTListItem* itemConnect = EOS_List_Top(&s_ListHttpConnect);
+	if (itemConnect == NULL) return;
+
+	EOTConnect* tConnect = (EOTConnect*)(itemConnect->data);
+
+	// 还未处理
+	if (itemConnect->flag == HTTP_CONNECT_NONE)
+	{
+		itemConnect->flag = HTTP_CONNECT_SET;
+
+		_T("连接HTTP");
+//		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIDEACT, (uint8_t*)"AT+QIDEACT=1\r\n", -1,
+//				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
+//		EON_Gprs_SendCmdPut(EOE_GprsCmd_QIDEACT, (uint8_t*)"AT+QIACT?\r\n", -1,
+//				GPRS_MODE_AT, GPRS_MODE_AT, GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
+		EON_Gprs_SendCmdPut(
+				EOE_HttpCmd_QHTTPCFG_PDP,
+				(uint8_t*)"AT+QHTTPCFG=\"contextid\",1\r\n", -1,
+				GPRS_MODE_AT, GPRS_MODE_AT,
+				GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_NORMAL);
+	}
+	else if (itemConnect->flag == HTTP_CONNECT_DONE)
+	{
+		// 已经完成，移除
+		EOS_List_Pop(&s_ListHttpConnect);
+	}
+	else
+	{
+		// 超时
+		if (EOB_Tick_Check(&(tConnect->last_tick), HTTP_TIMEOUT))
+		{
+			itemConnect->flag = HTTP_CONNECT_DONE;
+		}
+	}
+}

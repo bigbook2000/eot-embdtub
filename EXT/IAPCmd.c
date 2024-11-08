@@ -55,56 +55,7 @@ static void Cmd_JumpApp(EOTBuffer* tBuffer, int nPos)
 }
 
 /**
- * 直接写入开始
- */
-//static void Cmd_FlashBegin(EOTBuffer* tBuffer, int nPos)
-//{
-//	EOS_Buffer_Pop(tBuffer, NULL, nPos);
-//
-//	if (s_CommandFlag != CMD_NONE)
-//	{
-//		_T("无法执行命令: 开始写入 [%08lX]", s_CommandFlag);
-//		return;
-//	}
-//
-//	_T("执行命令: 开始写入");
-//	s_CommandFlag = CMD_FLASH_BEGIN;
-//
-//	EOB_Flash_Erase(SECTOR_APP0);
-//	EOB_Flash_Erase(SECTOR_APP1);
-//	EOB_Flash_Erase(SECTOR_APP2);
-//
-//	// 重置文件大小
-//	s_W25Q_Length = 0;
-//	s_W25Q_Address = ADDRESS_BASE_BIN;
-//
-//	_T("####fla1@@");
-//	_T("请选择APP程序文件(*.bin) : ");
-//}
-
-/**
- * 直接写入结束
- */
-//static void Cmd_FlashEnd(EOTBuffer* tBuffer, int nPos)
-//{
-//	EOS_Buffer_Pop(tBuffer, NULL, nPos);
-//
-//	if (s_CommandFlag != CMD_FLASH_BEGIN)
-//	{
-//		_T("无法执行命令: 结束写入 [%08lX]", s_CommandFlag);
-//		return;
-//	}
-//
-//	_T("执行命令: 结束写入");
-//
-//	s_CommandFlag = CMD_NONE;
-//
-//	_T("####fla2@@");
-//}
-
-/**
  * 版本文件开始
- * 版本文件写入的是下一版本区块，写入之后更改当前版本区块索引
  */
 static void Cmd_BinBegin(EOTBuffer* tBuffer, int nPos)
 {
@@ -122,16 +73,14 @@ static void Cmd_BinBegin(EOTBuffer* tBuffer, int nPos)
 	// W25Q存储分为5个区，至少18个块，不少于2M
 
 	//EOB_W25Q_EraseAll();
-	// 如果当前版本是0，写入区块2，否则写入区块1
+	_T("执行命令: 文件开始[版本%d]", tIAPConfig->region);
 	if (tIAPConfig->region == 0)
 	{
-		_T("执行命令: 文件开始[版本1]");
-		s_W25Q_Address = W25Q_SECTOR_BIN_2;
+		s_W25Q_Address = W25Q_SECTOR_BIN_1;
 	}
 	else
 	{
-		_T("执行命令: 文件开始[版本0]");
-		s_W25Q_Address = W25Q_SECTOR_BIN_1;
+		s_W25Q_Address = W25Q_SECTOR_BIN_2;
 	}
 
 	int i;
@@ -211,15 +160,12 @@ static void Cmd_BinEnd(EOTBuffer* tBuffer, int nPos)
 	// 更新文件大小，同时切换版本
 	if (tIAPConfig->region == 0)
 	{
-		tIAPConfig->region = 1;
-		tIAPConfig->bin2_length = s_W25Q_Length;
+		tIAPConfig->bin1_length = s_W25Q_Length;
 	}
 	else
 	{
-		tIAPConfig->region = 0;
-		tIAPConfig->bin1_length = s_W25Q_Length;
+		tIAPConfig->bin2_length = s_W25Q_Length;
 	}
-
 	_T("执行命令: 文件结束[版本%d]", tIAPConfig->region);
 
 	// 不改变APP标识
@@ -299,31 +245,9 @@ static void Cmd_DatEnd(EOTBuffer* tBuffer, int nPos)
 
 	// 不改变APP标识
 	F_IAPConfig_Save(CONFIG_FLAG_NONE);
-
 	s_CommandFlag = CMD_NONE;
 
 	_T("####dat2@@");
-}
-
-/**
- * 设置 Gate Api 接口地址
- * 远程获取版本，配置等
- * 依赖于http
- */
-static void Cmd_GateApi(EOTBuffer* tBuffer, int nPos)
-{
-	EOS_Buffer_Pop(tBuffer, NULL, nPos);
-
-	if (s_CommandFlag != CMD_NONE)
-	{
-		_T("无法执行命令: 设置网关信息 [%08lX]", s_CommandFlag);
-		return;
-	}
-
-	_T("执行命令: 设置网关信息");
-	s_CommandFlag = CMD_GATE_API;
-
-	_T("请输入网关信息:");
 }
 
 /**
@@ -368,6 +292,21 @@ static void Cmd_Config(EOTBuffer* tBuffer, int nPos)
 			ra, blen_a, dlen_a,
 			tIAPConfig->region, blen_b, dlen_b);
 
+	F_IAPConfig_Save(CONFIG_FLAG_NONE);
+	s_CommandFlag = CMD_NONE;
+}
+
+
+/**
+ * 烧录文件到当前版本
+ */
+static void Cmd_Flash(EOTBuffer* tBuffer, int nPos)
+{
+	EOS_Buffer_Pop(tBuffer, NULL, nPos);
+
+	_T("执行命令: 版本烧录");
+	s_CommandFlag = CMD_FLASH;
+
 	// 将APP标识改为 CONFIG_FLAG_FLASH(0x454F6661)
 	F_IAPConfig_Save(CONFIG_FLAG_FLASH);
 
@@ -383,7 +322,7 @@ static void Cmd_Config(EOTBuffer* tBuffer, int nPos)
 }
 
 // 处理文件数据
-static void Cmd_Data(EOTBuffer* tBuffer, int nPos)
+static void ProcessData(EOTBuffer* tBuffer, int nPos)
 {
 	// 传输文件时每次不得超过1K字节，至少延迟10ms
 
@@ -402,28 +341,28 @@ static void Cmd_Data(EOTBuffer* tBuffer, int nPos)
 				EOS_Buffer_Clear(tBuffer);
 			}
 			break;
-		case CMD_FLASH_BEGIN:
-			{
-				int nWrite = (tBuffer->length / 4) * 4;
-				if (nWrite > 0)
-				{
-					if (EOB_Flash_Write(s_W25Q_Address, tBuffer->buffer, nWrite) < 0)
-					{
-						_T("烧录失败");
-						return;
-					}
-
-					s_W25Q_Address += nWrite;
-					s_W25Q_Length += nWrite;
-
-					_T("烧录APP程序文件(*.bin) : [%08lX] %d / %d, %d",
-							s_W25Q_Address, s_W25Q_Length, nWrite, tBuffer->length);
-					//_Tmb(tBuffer->buffer, nWrite);
-
-					EOS_Buffer_Pop(tBuffer, NULL, nWrite);
-				}
-			}
-			break;
+//		case CMD_FLASH_BEGIN:
+//			{
+//				int nWrite = (tBuffer->length / 4) * 4;
+//				if (nWrite > 0)
+//				{
+//					if (EOB_Flash_Write(s_W25Q_Address, tBuffer->buffer, nWrite) < 0)
+//					{
+//						_T("烧录失败");
+//						return;
+//					}
+//
+//					s_W25Q_Address += nWrite;
+//					s_W25Q_Length += nWrite;
+//
+//					_T("烧录APP程序文件(*.bin) : [%08lX] %d / %d, %d",
+//							s_W25Q_Address, s_W25Q_Length, nWrite, tBuffer->length);
+//					//_Tmb(tBuffer->buffer, nWrite);
+//
+//					EOS_Buffer_Pop(tBuffer, NULL, nWrite);
+//				}
+//			}
+//			break;
 		case CMD_DAT_BEGIN:
 			{
 				EOB_W25Q_WriteData(s_W25Q_Address, tBuffer->buffer, tBuffer->length);
@@ -434,30 +373,6 @@ static void Cmd_Data(EOTBuffer* tBuffer, int nPos)
 						s_W25Q_Address, s_W25Q_Length, tBuffer->length);
 
 				EOS_Buffer_Clear(tBuffer);
-			}
-			break;
-		case CMD_GATE_API:
-			{
-				char sData[GATE_HOST_LENGTH];
-				if (EOS_Buffer_PopReturn(tBuffer, sData, GATE_HOST_LENGTH - 1) < 0)
-				{
-					return;
-				}
-				sData[GATE_HOST_LENGTH - 1] = '\0';
-
-				TIAPConfig* tIAPConfig = F_IAPConfig_Get();
-
-				strncpy(tIAPConfig->gate_host, sData, GATE_HOST_LENGTH);
-				tIAPConfig->gate_host[GATE_HOST_LENGTH - 1] = '\0';
-
-				_T("设置网关地址: %s", tIAPConfig->gate_host);
-
-				F_IAPConfig_Save(CONFIG_FLAG_NONE);
-
-				EOS_Buffer_Clear(tBuffer);
-				s_CommandFlag = CMD_NONE;
-
-				_T("####gate@@");
 			}
 			break;
 	}
@@ -520,14 +435,6 @@ void F_Cmd_Input(EOTBuffer* tBuffer, uint32_t nCheckFlag)
 			Cmd_JumpApp(tBuffer, nPos);
 			break;
 
-			// 不对外开放直接写入命令
-//		case CMD_FLASH_BEGIN: // 开始写入
-//			Cmd_FlashBegin(tBuffer, nPos);
-//			break;
-//		case CMD_FLASH_END: // 结束写入
-//			Cmd_FlashEnd(tBuffer, nPos);
-//			break;
-
 		case CMD_BIN_BEGIN: // bin1 文件开始
 			Cmd_BinBegin(tBuffer, nPos);
 			break;
@@ -543,18 +450,19 @@ void F_Cmd_Input(EOTBuffer* tBuffer, uint32_t nCheckFlag)
 		case CMD_CONFIG: // conf 重置配置
 			Cmd_Config(tBuffer, nPos);
 			break;
-		case CMD_GATE_API: // gate 设置Gate Api地址
-			Cmd_GateApi(tBuffer, nPos);
+		case CMD_FLASH: // flas 版本烧录
+			Cmd_Flash(tBuffer, nPos);
 			break;
 		case CMD_RESET: // rest 重启
 			Cmd_Reset(tBuffer, nPos);
 			break;
 		case CMD_CANCEL: // canc 取消命令
+			_T("命令取消");
 			EOS_Buffer_Clear(tBuffer);
 			s_CommandFlag = CMD_NONE;
 			break;
 		default:
-			Cmd_Data(tBuffer, nPos);
+			ProcessData(tBuffer, nPos);
 			break;
 	}
 

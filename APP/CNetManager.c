@@ -35,8 +35,10 @@
 #include "Config.h"
 #include "CProtocol.h"
 
+// 网络是否准备好
+static uint8_t s_NetStatusReady = EO_FALSE;
 
-TNetChannel s_NetChannels[MAX_NET_CHANNEL];
+static TNetChannel s_NetChannels[MAX_NET_CHANNEL];
 
 static void OnGprsReady(void)
 {
@@ -48,9 +50,13 @@ static void OnGprsReady(void)
 			s_NetChannels[i].start_cb(&s_NetChannels[i]);
 		}
 	}
+
+	s_NetStatusReady = EO_TRUE;
 }
 static void OnGprsReset(int nCmdId)
 {
+	s_NetStatusReady = EO_FALSE;
+
 	int i;
 	for (i=0; i<MAX_NET_CHANNEL; i++)
 	{
@@ -123,9 +129,11 @@ void F_NetManager_Init(void)
 			(EOFuncGprsReset)OnGprsReset,
 			NULL, NULL, NULL, NULL, NULL);
 
+	// 网络协议
 	EON_Tcp_Init();
+	EON_Http_Init();
 
-	// 协议公共初始化
+	// 应用协议
 	F_Protocol_Init();
 
 	// 从配置信息初始化通道
@@ -145,6 +153,8 @@ void F_NetManager_Init(void)
 	}
 }
 
+EOTConnect s_ConnectHttp = {};
+
 static uint64_t s_TickCSQ = 0L;
 static uint8_t s_NetChannelIndex = 0;
 void F_NetManager_Update(uint64_t tick)
@@ -153,14 +163,17 @@ void F_NetManager_Update(uint64_t tick)
 	EOB_Date_Get(&tDate);
 
 	// 检查信号（不用太频繁）
-	if (EOB_Tick_Check(&s_TickCSQ, 200000))
+	if (s_NetStatusReady == EO_TRUE && EOB_Tick_Check(&s_TickCSQ, 200000))
 	{
 		EON_Gprs_Cmd_CSQ();
+
+		//EON_Http_Open(&s_ConnectHttp);
 	}
 
 	EON_Gprs_Update(tick);
+
 	EON_Tcp_Update(tick);
-	//EON_Http_Update();
+	EON_Http_Update(tick);
 
 	// 错开分时更新
 	TNetChannel* pNetChannel = &s_NetChannels[s_NetChannelIndex];

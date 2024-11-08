@@ -23,10 +23,6 @@
 
 // 跳转到APP
 #define CMD_JUMP_APP		0x7070616A // japp
-// 开始写入
-#define CMD_FLASH_BEGIN		0x31616C66 // fla1
-// 结束写入
-#define CMD_FLASH_END		0x32616C66 // fla2
 // 文件开始
 #define CMD_BIN_BEGIN		0x316E6962 // bin1
 // 文件结束
@@ -37,8 +33,8 @@
 #define CMD_DAT_END			0x32746164 // dat2
 // 重置配置
 #define CMD_CONFIG			0x666E6F63 // conf
-// 设置Gate Api地址
-#define CMD_GATE_API		0x65746167 // gate
+// 版本烧录
+#define CMD_FLASH			0x73616C66 // flas
 
 // 软重启
 #define CMD_RESET			0x74736572 // rest
