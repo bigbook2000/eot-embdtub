@@ -26,6 +26,7 @@
 #include "eos_timer.h"
 #include "eos_list.h"
 
+#include "eob_util.h"
 #include "eob_debug.h"
 #include "eob_date.h"
 #include "eob_dma.h"
@@ -111,6 +112,11 @@ static void OnTimer_CmdTimeout(EOTTimer* tpTimer);
 #define ISP_CODE_CU 2 // 联通 China Unicom
 #define ISP_CODE_CT 3 // 电信 China Telecom
 static uint8_t s_ISPCode = ISP_CODE_CM;
+
+
+// 连续多次重启无效
+static uint8_t s_PowerCount = 0;
+
 
 // 信号
 static uint8_t s_CSQ = 0;
@@ -457,6 +463,15 @@ void EON_Gprs_Cmd_QICSGP(char* sApn, char* sUser, char* sPassword)
 // 拉低有效
 void EON_Gprs_Power(void)
 {
+	if (s_PowerCount > 3)
+	{
+		// 连续3次重置GPRS模块无效则关机重启
+		EOB_SystemReset();
+		return;
+	}
+
+	s_PowerCount++;
+
 	_T("Reset GPRS");
 
 	s_GprsStatus = GPRS_STATUS_NONE;
@@ -1187,6 +1202,8 @@ static void GprsSendProcess(uint64_t tick)
 
 	// 重置计数器
 	EOS_Timer_StartDelay(&s_TimerCmdTimeout, pCmd->delay_max, pCmd->try_max, NULL);
+	// 重置次数
+	s_PowerCount = 0;
 
 	GprsSendData(pCmd);
 }
@@ -1265,11 +1282,7 @@ void EON_Gprs_Update(uint64_t tick)
  */
 static void OnTimer_SystmReset(EOTTimer* tpTimer)
 {
-	_T("\r\n\r\n---------------- 系统重启 ----------------\r\n\r\n\r\n");
-	LL_mDelay(3000);
-	NVIC_SystemReset();
-
-	while (1) {}
+	EOB_SystemReset();
 }
 
 /**

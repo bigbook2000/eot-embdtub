@@ -93,10 +93,25 @@ void OnApp_Input(void)
 		EOS_Buffer_Clear(tBuffer);
 	}
 
-	_T("接收输入 = %d", tBuffer->length);
+	//_T("接收输入 = %d", tBuffer->length);
 
-	// 只处理跳转
-	F_Cmd_Input(tBuffer, CMD_RESET);
+	F_Cmd_Input(tBuffer);
+}
+
+/**
+ * 打印配置
+ */
+static void OnCmd_DatShow(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
+{
+	_T("执行命令: 打印配置");
+
+	EOS_Buffer_Pop(tBuffer, NULL, nPos);
+
+	// 还原标识
+	F_Cmd_SetFlag(CMD_NONE);
+
+	// 打印配置
+	F_LoadAppConfig();
 }
 
 // 处理外设任务
@@ -154,9 +169,22 @@ void f_Task_Main(void const * arg)
 
 	osThreadDef(taskDev, f_Task_Dev, osPriorityNormal, 0, 1024);
 	taskDevHandle = osThreadCreate(osThread(taskDev), NULL);
+	if (taskDevHandle == NULL)
+	{
+		_Pf("osThreadCreate Fail : Dev\r\n");
+	}
 
 	osThreadDef(taskNet, f_Task_Net, osPriorityNormal, 0, 1024);
 	taskNetHandle = osThreadCreate(osThread(taskNet), NULL);
+	if (taskNetHandle == NULL)
+	{
+		_Pf("osThreadCreate Fail : Net\r\n");
+	}
+
+	// 勿忘初始化
+	F_Cmd_ProcessInit();
+	F_Cmd_ProcessSet(CMD_RESET);
+	F_Cmd_ProcessExt(CMD_DAT_SHOW, (EOFuncCmdProcess)OnCmd_DatShow);
 
 	while (1)
 	{

@@ -61,3 +61,15 @@ void EOB_JumpApp(unsigned int nAddressApp)
 		_T("无效的APP区");
 	}
 }
+
+/**
+ * 系统重启
+ */
+void EOB_SystemReset(void)
+{
+	_T("\r\n\r\n---------------- 系统重启 ----------------\r\n\r\n\r\n");
+	LL_mDelay(3000);
+	NVIC_SystemReset();
+
+	while (1) {}
+}

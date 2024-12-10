@@ -123,7 +123,7 @@ static int ConfigParseLine(char* pLine, int nCount)
 	}
 
 	F_ConfigAdd(sKey, sVal);
-	_Pf("[%03d/%03d]: %24s = %s\n", i, nCount, sKey, sVal);
+	_Pf("@@[%03d/%03d]: %24s = %s;\r\n", i, nCount, sKey, sVal);
 
 	return (i + 1);
 }
@@ -134,6 +134,8 @@ void F_LoadAppConfig(void)
 {
 	uint32_t nAddress;
 	int nDataLength;
+
+	_Pf("@@-- Config Data Begin\r\n");
 
 	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
 	if (tIAPConfig->region == 0)
@@ -189,6 +191,8 @@ void F_LoadAppConfig(void)
 	}
 
 	EOS_Buffer_Destory(&tBuffer);
+
+	_Pf("@@-- Config Data End\r\n");
 }
 
 /**

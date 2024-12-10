@@ -41,4 +41,6 @@
 void EOB_STM32_Uid(unsigned char* pByte12);
 void EOB_JumpApp(unsigned int nAddressApp);
 
+void EOB_SystemReset(void);
+
 #endif /* EOB_UTIL_H_ */

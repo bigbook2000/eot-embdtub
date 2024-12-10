@@ -24,7 +24,7 @@
  * 使用3个数字来表示
  * 代码中定义，不同的代码，请修改
  */
-#define __APP_BIN_VERSION		"1.0.2"
+#define __APP_BIN_VERSION		"1.02.247"
 
 
 #define APP_CONFIG_VER 			2

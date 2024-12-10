@@ -40,7 +40,8 @@ void EOB_Debug_PrintLine(char* sInfo, ...);
 void EOB_Debug_PrintTime(void);
 void EOB_Debug_PrintBin(void* pData, int nLength);
 
-
+// 输出
+#define _P(...) EOB_Debug_Print(__VA_ARGS__)
 // 格式化输出，带换行
 #define _T(...) EOB_Debug_PrintLine(__VA_ARGS__)
 // 调试

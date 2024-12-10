@@ -27,6 +27,8 @@
 #define CMD_BIN_BEGIN		0x316E6962 // bin1
 // 文件结束
 #define CMD_BIN_END			0x326E6962 // bin2
+// 打印配置
+#define CMD_DAT_SHOW		0x30746164 // dat0
 // 配置开始
 #define CMD_DAT_BEGIN		0x31746164 // dat1
 // 配置结束
@@ -41,7 +43,20 @@
 // 取消命令
 #define CMD_CANCEL			0x636E6163 // canc
 
+// 命令处理函数
+typedef void (*EOFuncCmdProcess)(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos);
+typedef struct _stTCmdProcess
+{
+	uint32_t id;
+	EOFuncCmdProcess func;
+}
+TCmdProcess;
 
-void F_Cmd_Input(EOTBuffer* tBuffer, uint32_t nCheckFlag);
+void F_Cmd_ProcessInit(void);
+void F_Cmd_ProcessExt(uint32_t nCmdId, EOFuncCmdProcess tProcess);
+void F_Cmd_ProcessSet(uint32_t nCmdId);
+
+void F_Cmd_Input(EOTBuffer* tBuffer);
+void F_Cmd_SetFlag(uint32_t nCmdId);
 
 #endif /* IAPCMD_H_ */

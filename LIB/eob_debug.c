@@ -314,6 +314,11 @@ void EOB_Debug_PrintBin(void* pData, int nLength)
 	uint8_t* pBuffer = pData;
 	int i, pos;
 
+	// ·ÀÖ¹Òç³ö
+	int count = DEBUG_BUFFER_SIZE / 3 - 5;
+	if (nLength < count) count = nLength;
+	if (nLength > 500) nLength = 500;
+
 #ifdef PRINT_ASYNC
 	// ½øÈëËø
 	TASK_LOCK_BEGIN();
@@ -345,8 +350,16 @@ void EOB_Debug_PrintBin(void* pData, int nLength)
 	pos = 0;
 	for (i=0; i<nLength; i++)
 	{
-		pos += sprintf(&s_PrintInfo[pos], "%02X ", *pBuffer);
+		pos += snprintf(&s_PrintInfo[pos], (DEBUG_BUFFER_SIZE - pos), "%02X ", *pBuffer);
 		++pBuffer;
+	}
+
+	if (nLength != count)
+	{
+		s_PrintInfo[pos] = '.';
+		++pos;
+		s_PrintInfo[pos] = '.';
+		++pos;
 	}
 
 	s_PrintInfo[pos] = '\n';

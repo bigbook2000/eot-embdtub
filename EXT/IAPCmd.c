@@ -30,10 +30,13 @@ static uint32_t s_CommandFlag = CMD_NONE;
 static uint32_t s_W25Q_Address = 0x1FFFFFFF;
 static int s_W25Q_Length = 0;
 
+#define CMD_PROCESS_SIZE 16
+static TCmdProcess s_ListCmdProcess[CMD_PROCESS_SIZE];
+
 /**
  * 跳转到APP
  */
-static void Cmd_JumpApp(EOTBuffer* tBuffer, int nPos)
+static void Cmd_JumpApp(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -57,7 +60,7 @@ static void Cmd_JumpApp(EOTBuffer* tBuffer, int nPos)
 /**
  * 版本文件开始
  */
-static void Cmd_BinBegin(EOTBuffer* tBuffer, int nPos)
+static void Cmd_BinBegin(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -101,7 +104,7 @@ static void Cmd_BinBegin(EOTBuffer* tBuffer, int nPos)
 /**
  * 文件结束
  */
-static void Cmd_BinEnd(EOTBuffer* tBuffer, int nPos)
+static void Cmd_BinEnd(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -180,7 +183,7 @@ static void Cmd_BinEnd(EOTBuffer* tBuffer, int nPos)
  * 配置开始
  * 配置写入的是当前配置区，不改变配置区索引
  */
-static void Cmd_DatBegin(EOTBuffer* tBuffer, int nPos)
+static void Cmd_DatBegin(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -218,7 +221,7 @@ static void Cmd_DatBegin(EOTBuffer* tBuffer, int nPos)
 /**
  * 配置结束
  */
-static void Cmd_DatEnd(EOTBuffer* tBuffer, int nPos)
+static void Cmd_DatEnd(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -254,7 +257,7 @@ static void Cmd_DatEnd(EOTBuffer* tBuffer, int nPos)
  * 交换版本区域，每次更新bin之后，需要交换
  * 如果仅仅更新配置，可以不交换
  */
-static void Cmd_Config(EOTBuffer* tBuffer, int nPos)
+static void Cmd_Config(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -300,7 +303,7 @@ static void Cmd_Config(EOTBuffer* tBuffer, int nPos)
 /**
  * 烧录文件到当前版本
  */
-static void Cmd_Flash(EOTBuffer* tBuffer, int nPos)
+static void Cmd_Flash(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	EOS_Buffer_Pop(tBuffer, NULL, nPos);
 
@@ -381,7 +384,7 @@ static void ProcessData(EOTBuffer* tBuffer, int nPos)
 /**
  * 重启
  */
-static void Cmd_Reset(EOTBuffer* tBuffer, int nPos)
+static void Cmd_Reset(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 {
 	// 更改命令行模式 CONFIG_FLAG_INPUT
 	F_IAPConfig_Save(CONFIG_FLAG_INPUT);
@@ -389,14 +392,116 @@ static void Cmd_Reset(EOTBuffer* tBuffer, int nPos)
 	EOS_Buffer_Clear(tBuffer);
 
 	_T("执行命令: 系统重启");
-	_T("\r\n\r\n---------------- 系统重启 ----------------\r\n\r\n\r\n");
-	LL_mDelay(3000);
-	NVIC_SystemReset();
 
-	while (1) {}
+	EOB_SystemReset();
 }
 
-void F_Cmd_Input(EOTBuffer* tBuffer, uint32_t nCheckFlag)
+static void Cmd_Cancel(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
+{
+	EOS_Buffer_Clear(tBuffer);
+
+	_T("执行命令: 命令取消");
+	s_CommandFlag = CMD_NONE;
+}
+
+/**
+ * 一定要记得初始化
+ */
+void F_Cmd_ProcessInit(void)
+{
+	_T("初始化命令输入");
+
+	int i;
+	TCmdProcess* p;
+	for (i=0; i<CMD_PROCESS_SIZE; i++)
+	{
+		p = &s_ListCmdProcess[i];
+		p->id = 0x0;
+		p->func = NULL;
+	}
+}
+/**
+ * 使用之前记得初始化
+ */
+void F_Cmd_ProcessExt(uint32_t nCmdId, EOFuncCmdProcess tProcess)
+{
+	int i;
+	TCmdProcess* p;
+	for (i=0; i<CMD_PROCESS_SIZE; i++)
+	{
+		p = &s_ListCmdProcess[i];
+		if (p->id == 0x0)
+		{
+			p->id = nCmdId;
+			p->func = tProcess;
+
+			_T("设置扩展输入命令 %08X", nCmdId);
+			break;
+		}
+	}
+
+	if (i >= CMD_PROCESS_SIZE)
+	{
+		_T("命令设置超出: %08X", nCmdId);
+		return;
+	}
+}
+
+void F_Cmd_ProcessSet(uint32_t nCmdId)
+{
+	int i;
+	TCmdProcess* p = NULL;
+	for (i=0; i<CMD_PROCESS_SIZE; i++)
+	{
+		p = &s_ListCmdProcess[i];
+		if (p->id == 0x0) break;
+	}
+
+	if (i >= CMD_PROCESS_SIZE)
+	{
+		_T("命令设置超出: %08X", nCmdId);
+		return;
+	}
+
+	_T("设置默认输入命令 %08X", nCmdId);
+	p->id = nCmdId;
+
+	switch (nCmdId)
+	{
+		case CMD_JUMP_APP: // japp 跳转到APP
+			p->func = (EOFuncCmdProcess)Cmd_JumpApp;
+			break;
+		case CMD_BIN_BEGIN: // bin1 文件开始
+			p->func = (EOFuncCmdProcess)Cmd_BinBegin;
+			break;
+		case CMD_BIN_END: // bin2 文件结束
+			p->func = (EOFuncCmdProcess)Cmd_BinEnd;
+			break;
+		case CMD_DAT_BEGIN: // dat1 配置开始
+			p->func = (EOFuncCmdProcess)Cmd_DatBegin;
+			break;
+		case CMD_DAT_END: // dat2 配置结束
+			p->func = (EOFuncCmdProcess)Cmd_DatEnd;
+			break;
+		case CMD_CONFIG: // conf 重置配置
+			p->func = (EOFuncCmdProcess)Cmd_Config;
+			break;
+		case CMD_FLASH: // flas 版本烧录
+			p->func = (EOFuncCmdProcess)Cmd_Flash;
+			break;
+		case CMD_RESET: // rest 重启
+			p->func = (EOFuncCmdProcess)Cmd_Reset;
+			break;
+		case CMD_CANCEL: // canc 取消命令
+			p->func = (EOFuncCmdProcess)Cmd_Cancel;
+			break;
+	}
+}
+
+/**
+ * 处理命令
+ */
+void F_Cmd_Input(EOTBuffer* tBuffer)
 {
 	uint8_t* pBuffer = tBuffer->buffer;
 
@@ -426,50 +531,37 @@ void F_Cmd_Input(EOTBuffer* tBuffer, uint32_t nCheckFlag)
 		}
 	}
 
-	// 只校验单一命令
-	if (CMD_NONE != nCheckFlag && nCmdFlag != nCheckFlag) return;
+	TCmdProcess* p;
 
-	switch (nCmdFlag)
+	i = CMD_PROCESS_SIZE; // 当无命令时也要处理ProcessData
+	if (nCmdFlag != CMD_NONE)
 	{
-		case CMD_JUMP_APP: // japp 跳转到APP
-			Cmd_JumpApp(tBuffer, nPos);
-			break;
+		for (i=0; i<CMD_PROCESS_SIZE; i++)
+		{
+			p = &s_ListCmdProcess[i];
+			if (p->id == nCmdFlag)
+			{
+				p->func(nCmdFlag, tBuffer, nPos);
+				break;
+			}
+		}
+	}
 
-		case CMD_BIN_BEGIN: // bin1 文件开始
-			Cmd_BinBegin(tBuffer, nPos);
-			break;
-		case CMD_BIN_END: // bin2 文件结束
-			Cmd_BinEnd(tBuffer, nPos);
-			break;
-		case CMD_DAT_BEGIN: // dat1 配置开始
-			Cmd_DatBegin(tBuffer, nPos);
-			break;
-		case CMD_DAT_END: // dat2 配置结束
-			Cmd_DatEnd(tBuffer, nPos);
-			break;
-		case CMD_CONFIG: // conf 重置配置
-			Cmd_Config(tBuffer, nPos);
-			break;
-		case CMD_FLASH: // flas 版本烧录
-			Cmd_Flash(tBuffer, nPos);
-			break;
-		case CMD_RESET: // rest 重启
-			Cmd_Reset(tBuffer, nPos);
-			break;
-		case CMD_CANCEL: // canc 取消命令
-			_T("命令取消");
-			EOS_Buffer_Clear(tBuffer);
-			s_CommandFlag = CMD_NONE;
-			break;
-		default:
-			ProcessData(tBuffer, nPos);
-			break;
+	if (i >= CMD_PROCESS_SIZE)
+	{
+		ProcessData(tBuffer, nPos);
 	}
 
 	// 大量无效数据
 	if (tBuffer->length >= DEBUG_LIMIT)
 	{
+		_T("输入过多无效数据");
 		EOS_Buffer_Clear(tBuffer);
 	}
+}
+
+void F_Cmd_SetFlag(uint32_t nCmdId)
+{
+	s_CommandFlag = nCmdId;
 }
 

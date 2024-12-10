@@ -18,6 +18,8 @@
 
 #include "eos_inc.h"
 #include "eos_timer.h"
+
+#include "eob_util.h"
 #include "eob_debug.h"
 #include "eob_date.h"
 #include "eob_tick.h"
@@ -31,6 +33,8 @@
 #include "Global.h"
 #include "Config.h"
 #include "CSensor.h"
+
+#define VERSION_BIN_SIZE 1000
 
 
 static char s_STCode[SIZE_8];
@@ -53,6 +57,8 @@ static uint8_t s_UpdateChannelId = 0xFF;
 static int s_UpdateFileTotal = 0;
 static int s_UpdateFilePos = 0;
 static int s_UpdateBufferSize = 0;
+// 用来标记超时
+static int s_UpdateTickLast = 0;
 
 static char s_UpdateCrc[SIZE_40] = {0};
 static char s_UpdateType[SIZE_32] = {0};
@@ -104,11 +110,7 @@ static void GetCrcBuffer(uint8_t* pCrc, char* sVal)
  */
 static void OnTimer_SystmReset(EOTTimer* tpTimer)
 {
-	_T("\r\n\r\n---------------- 系统重启 ----------------\r\n\r\n\r\n");
-	LL_mDelay(3000);
 	NVIC_SystemReset();
-
-	while (1) {}
 }
 
 #include "eob_w25q.h"
@@ -117,6 +119,18 @@ static void OnTimer_SystmReset(EOTTimer* tpTimer)
 
 static uint32_t s_W25Q_Address = 0x1FFFFFFF;
 static int s_W25Q_Length = 0;
+
+
+static void ResetVersionUpdate(void)
+{
+	// 重置
+	s_UpdateChannelId = 0xFF;
+	s_UpdateFileTotal = 0;
+	s_UpdateFilePos = 0;
+	s_UpdateBufferSize = 0;
+
+	s_UpdateTickLast = 0;
+}
 
 /**
  * 版本文件开始
@@ -209,21 +223,21 @@ static void TcpHJ212DatEnd()
 {
 	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
 
-	// 更新配置大小
-	// 切换版本，并重启
+	// 更新配置大小，交换版本，并重启
 	if (tIAPConfig->region == 0)
 	{
-		tIAPConfig->region = 1;
 		tIAPConfig->dat2_length = s_W25Q_Length;
+		tIAPConfig->region = 1;
 	}
 	else
 	{
-		tIAPConfig->region = 0;
 		tIAPConfig->dat1_length = s_W25Q_Length;
+		tIAPConfig->region = 0;
 	}
+
 	_T("执行命令: 配置结束[版本%d]", tIAPConfig->region);
 
-	// 刷写
+	// 执行刷写
 	F_IAPConfig_Save(CONFIG_FLAG_FLASH);
 }
 
@@ -278,8 +292,10 @@ static void TcpHJ212SendEnd(char* pSendBuffer, uint8_t nChannel, int len)
 	EON_Tcp_SendData(nChannel, (uint8_t*)pSendBuffer, len+6);
 }
 
-
-static void TcpHJ212_Send3101(EOTConnect *tConnect, char* pSendBuffer)
+/**
+ * 向上位机发送配置参数
+ */
+static void TcpHJ212_Send3020(EOTConnect *tConnect, char* pSendBuffer)
 {
 	int len = 0;
 	uint8_t nChannel = tConnect->channel;
@@ -289,7 +305,7 @@ static void TcpHJ212_Send3101(EOTConnect *tConnect, char* pSendBuffer)
 
 	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
 
-	len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3101");
+	len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3020");
 	len += sprintf(&pSendBuffer[len],
 			";DKey=%s;DType=%s;DVersion=%s;",
 			tIAPConfig->device_key,
@@ -321,7 +337,7 @@ static void TcpHJ212_Send3111(EOTConnect *tConnect, char* pSendBuffer)
 	len += sprintf(&pSendBuffer[len],
 			";UCrc=%s;UPos=%d;USize=%d",
 			s_UpdateCrc, s_UpdateFilePos,
-			SIZE_1000);
+			VERSION_BIN_SIZE);
 	TcpHJ212SendEnd(pSendBuffer, nChannel, len);
 }
 
@@ -344,25 +360,26 @@ static void TcpHJ212_Send3112(EOTConnect *tConnect, char* pSendBuffer)
 }
 
 /**
- * 当前配置
+ * 从上位机变更当前配置
  */
-static void OnTcpHJ212_3102(EOTConnect *tConnect, char* pCPStr, char* pSendBuffer)
+static void OnTcpHJ212_3021(EOTConnect *tConnect, char* pCPStr, char* pSendBuffer)
 {
 	// 直接将收到的CP保存到配置区
 	F_SaveAppConfigString(pCPStr, -1);
 
-	// 这个消息由终端发起，不要回复
+	// 这个消息由终端发起，上位机不要回复
 	uint8_t nChannel = tConnect->channel;
 
 	EOTDate tDate = {0};
 	EOB_Date_Get(&tDate);
 
-	int len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3102");
+	int len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3021");
 	TcpHJ212SendEnd(pSendBuffer, nChannel, len);
 
 	// 延迟重启
 	EOS_Timer_Start(&s_TimerSystmReset);
 }
+
 
 /**
  * 更新版本
@@ -441,16 +458,22 @@ static void OnTcpHJ212_3112(EOTConnect *tConnect, char* pCPStr, char* pSendBuffe
 	EOS_Timer_Start(&s_TimerSystmReset);
 }
 
-static void OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
+static uint8_t OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
 {
-	// 如果升级，不再发送数据
-	if (s_UpdateFileTotal > 0 && s_UpdateChannelId == tConnect->channel)
+	// ##0000CP=&&&&XXXX\r\d
+	if (nLength < 20)
 	{
-		return;
+		_T("非HJ212数据返回[%d]: <%d>", tConnect->channel, nLength);
+		return EO_FALSE;
 	}
-
 	// HJ212以\r\n返回
 	// 将换行符替换成结束符方便字符串操作
+
+	if (pData[0] != '#' || pData[1] != '#')
+	{
+		_T("非HJ212数据返回[%d]: <%d>", tConnect->channel, nLength);
+		return EO_FALSE;
+	}
 
 	pData[nLength - 1] = '\0';
 	const char* sData = (const char*)pData;
@@ -464,14 +487,14 @@ static void OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
 	if (p1 == NULL)
 	{
 		_T("未找到CP起始节点");
-		return;
+		return EO_FALSE;
 	}
 	char* pCPStr = p1 + 5;
 	p2 = strnstr(pCPStr, "&&", nLength - 5);
 	if (p2 == NULL)
 	{
 		_T("未找到CP结束节点");
-		return;
+		return EO_FALSE;
 	}
 	*p2 = '\0';
 
@@ -480,14 +503,14 @@ static void OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
 	if (p1 == NULL)
 	{
 		_T("未找到CN起始节点");
-		return;
+		return EO_FALSE;
 	}
 	char* pCNStr = p1 + 3;
 	p2 = strnstr(pCNStr, ";", nLength - 3);
 	if (p2 == NULL)
 	{
 		_T("未找到CN结束节点");
-		return;
+		return EO_FALSE;
 	}
 	*p2 = '\0';
 
@@ -495,15 +518,15 @@ static void OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
 	_T("CP: %s", pCPStr);
 
 	char* pSendBuffer = F_Protocol_SendBuffer();
-	if (strcmp(pCNStr, "3101") == 0)
+	if (strcmp(pCNStr, "3020") == 0)
 	{
 		// 配置状态
-		TcpHJ212_Send3101(tConnect, pSendBuffer);
+		TcpHJ212_Send3020(tConnect, pSendBuffer);
 	}
-	else if (strcmp(pCNStr, "3102") == 0)
+	else if (strcmp(pCNStr, "3021") == 0)
 	{
 		// 配置信息
-		OnTcpHJ212_3102(tConnect, pCPStr, pSendBuffer);
+		OnTcpHJ212_3021(tConnect, pCPStr, pSendBuffer);
 	}
 	else if (strcmp(pCNStr, "3111") == 0)
 	{
@@ -515,7 +538,15 @@ static void OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
 		// 升级配置
 		OnTcpHJ212_3112(tConnect, pCPStr, pSendBuffer);
 	}
+	else if (strcmp(pCNStr, "3199") == 0)
+	{
+		// 重启
+		EOB_SystemReset();
+	}
+
+	return EO_TRUE;
 }
+
 
 /**
  * 版本升级
@@ -539,7 +570,7 @@ static void OnTcpVersionUpdate(EOTConnect* tConnect, uint8_t* pData, int nLength
 	if (s_UpdateFilePos < s_UpdateFileTotal)
 	{
 		// 数据已经全部读取
-		if (s_UpdateBufferSize >= SIZE_1000)
+		if (s_UpdateBufferSize >= VERSION_BIN_SIZE)
 		{
 			TcpHJ212_Send3111(tConnect, pSendBuffer);
 		}
@@ -559,16 +590,18 @@ static void OnTcpVersionUpdate(EOTConnect* tConnect, uint8_t* pData, int nLength
 
 static void OnTcpOpen(EOTConnect *connect, int code)
 {
+	// 重置
+	ResetVersionUpdate();
 }
 static int OnTcpRecv(EOTConnect* tConnect, uint8_t* pData, int nLength)
 {
-	if (s_UpdateFileTotal > 0 && s_UpdateChannelId == tConnect->channel)
+	// 防止命令中断
+	if (OnTcpHJ212(tConnect, pData, nLength) != EO_TRUE)
 	{
-		OnTcpVersionUpdate(tConnect, pData, nLength);
-	}
-	else
-	{
-		OnTcpHJ212(tConnect, pData, nLength);
+		if (s_UpdateFileTotal > 0 && s_UpdateChannelId == tConnect->channel)
+		{
+			OnTcpVersionUpdate(tConnect, pData, nLength);
+		}
 	}
 
 	return 0;
@@ -640,6 +673,7 @@ static void TcpHJ212_SendDataRt(char* pSendBuffer, uint8_t nChannel, EOTDate* pD
 
 static void TcpHJ212_Start(TNetChannel* pNetChannel)
 {
+	_T("重置 TcpHJ212");
 	EON_Tcp_SetConnect(
 			pNetChannel->gprs_id,
 			F_ConfigGetString("server%d.host", pNetChannel->cfg_id),
@@ -651,6 +685,9 @@ static void TcpHJ212_Start(TNetChannel* pNetChannel)
 	THJ212Data* pData = &s_ListHJ212Data[pNetChannel->id];
 	pData->last_minute = INT_MAX;
 	pData->tick_connect = 0L;
+
+	// 重置
+	ResetVersionUpdate();
 }
 
 /**
@@ -660,6 +697,12 @@ static void TcpHJ212_SendData(TNetChannel* pNetChannel, uint64_t tick, EOTDate* 
 {
 	int i;
 	int dp, dy, td;
+
+	// 升级期间不发送数据
+	if (s_UpdateFileTotal > 0)
+	{
+		return;
+	}
 
 	char* pSendBuffer = F_Protocol_SendBuffer();
 
@@ -716,7 +759,7 @@ static void TcpHJ212_Update(TNetChannel* pNetChannel, uint64_t tick, EOTDate* pD
 	if (pData->last_minute == dm) return;
 	pData->last_minute = dm;
 
-	//_T("F_Protocol_TcpHJ212_Update = %d", s_LastMinute);
+	_T("TcpHJ212_Update = %d", dm);
 	if (EON_Tcp_IsConnect(pNetChannel->gprs_id))
 	{
 		TcpHJ212_SendData(pNetChannel, tick, pDate, dm);
