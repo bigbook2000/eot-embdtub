@@ -152,6 +152,13 @@ typedef struct _stEOTGprsCmd
 	// 外挂标识
 	uint32_t tag;
 
+	// 通道标识
+	uint8_t channel;
+	// 对齐保留
+	uint8_t r1;
+	// 对齐保留
+	uint16_t r2;
+
 	int8_t send_mode;
 	int8_t recv_mode;
 
@@ -216,5 +223,7 @@ void EON_Gprs_Cmd_CSQ(void);
 // 获取时钟
 void EON_Gprs_Cmd_QLTS(void);
 
+
+uint8_t EON_Gprs_CSQ(void);
 
 #endif /* EON_EC800_H_ */

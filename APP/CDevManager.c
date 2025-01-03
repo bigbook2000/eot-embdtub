@@ -26,7 +26,7 @@
 
 #include "eob_uart.h"
 
-#include "Config.h"
+#include "AppSetting.h"
 #include "CDevice.h"
 #include "CSensor.h"
 
@@ -44,32 +44,24 @@ static void DeviceInit(TDevInfo* pDevInfo, int nIndex)
 	pDevInfo->param_count = 0;
 	pDevInfo->param = NULL;
 
-	s = F_ConfigGetString("device%d.type", nIndex);
+	s = F_SettingGetString("dev%d.type", nIndex);
 	if (strnstr(s, "UART3", 8) != NULL)
 		pDevInfo->type = DEVICE_TYPE_UART3;
 	else if (strnstr(s, "UART4", 8) != NULL)
 		pDevInfo->type = DEVICE_TYPE_UART4;
 	else if (strnstr(s, "UART5", 8) != NULL)
 		pDevInfo->type = DEVICE_TYPE_UART5;
-	else if (strnstr(s, "INPUT1", 8) != NULL)
-		pDevInfo->type = DEVICE_TYPE_INPUT1;
-	else if (strnstr(s, "INPUT2", 8) != NULL)
-		pDevInfo->type = DEVICE_TYPE_INPUT2;
-	else if (strnstr(s, "OUTPUT1", 8) != NULL)
-		pDevInfo->type = DEVICE_TYPE_OUTPUT1;
-	else if (strnstr(s, "OUTPUT2", 8) != NULL)
-		pDevInfo->type = DEVICE_TYPE_OUTPUT1;
+	else if (strnstr(s, "GPIO", 8) != NULL)
+		pDevInfo->type = DEVICE_TYPE_GPIO;
 	else if (strnstr(s, "ADC1", 8) != NULL)
-		pDevInfo->type = DEVICE_TYPE_ADC1_8;
-	else if (strnstr(s, "ADC2", 8) != NULL)
-		pDevInfo->type = DEVICE_TYPE_ADC1_9;
+		pDevInfo->type = DEVICE_TYPE_ADC1;
 	else
 	{
 		_T("*** 设备类型错误 %s", s);
 	}
 
-	char* sType = F_ConfigGetString("device%d.protocol", nIndex);
-	char* sParams = F_ConfigGetString("device%d.command", nIndex);
+	char* sType = F_SettingGetString("dev%d.protocol", nIndex);
+	char* sParams = F_SettingGetString("dev%d.command", nIndex);
 
 	pDevInfo->device = DEVICE_NONE;
 
@@ -92,7 +84,7 @@ void F_DevManager_Init(void)
 	// 初始化DMA
 	F_UART_DMA_Init();
 
-	cnt = F_ConfigGetInt32("device.count");
+	cnt = F_SettingGetInt32("dev.count");
 	s_DeviceCount = cnt;
 	if (cnt > 0)
 	{
@@ -108,7 +100,7 @@ void F_DevManager_Init(void)
 		}
 	}
 
-	cnt = F_ConfigGetInt32("sensor.count");
+	cnt = F_SettingGetInt32("sen.count");
 	if (cnt <= 0)
 	{
 		_T("未配置传感器参数");
@@ -125,10 +117,10 @@ void F_DevManager_Init(void)
 	for (i=0; i<cnt; i++)
 	{
 		nIndex = i + 1;
-		sName = F_ConfigGetString("sensor%d.name", nIndex);
-		sDevice = F_ConfigGetString("sensor%d.device", nIndex);
-		sData = F_ConfigGetString("sensor%d.data", nIndex);
-		sTick = F_ConfigGetString("sensor%d.tick", nIndex);
+		sName = F_SettingGetString("sen%d.name", nIndex);
+		sDevice = F_SettingGetString("sen%d.device", nIndex);
+		sData = F_SettingGetString("sen%d.data", nIndex);
+		sTick = F_SettingGetString("sen%d.tick", nIndex);
 
 		pSensorList[i].id = i;
 		F_Sensor_Type(&(pSensorList[i]), sName, sDevice, sTick, sData);

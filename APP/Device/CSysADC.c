@@ -1,6 +1,9 @@
 /*
  * CSysADC.c
  *
+ * ADC1
+ * 类型只能是uint16
+ *
  *  Created on: Feb 2, 2024
  *      Author: hjx
  */
@@ -18,6 +21,10 @@
 #include "eos_inc.h"
 #include "eob_tick.h"
 #include "eob_debug.h"
+
+#include "Global.h"
+#include "AppSetting.h"
+#include "CSensor.h"
 
 #define DMA_ADC					DMA2
 #define DMA_STREAM_ADC			LL_DMA_STREAM_0
@@ -48,6 +55,39 @@ TADCData;
 // 2个通道
 static TADCData s_ADCData[ADC_CHANNEL_COUNT];
 
+#define DEVICE_DATA_ADC1_8	0
+#define DEVICE_DATA_ADC1_9	1
+
+/**
+ * 转换实际收到的数据从device到sensor
+ */
+static double DoSensorDataRt(TSensor* pSensor, void* pTag, uint8_t* pData, int nLength)
+{
+	TRegisterData* pRegRt;
+
+	pRegRt = &(pSensor->data_rt);
+
+	if (pSensor->offset >= ADC_CHANNEL_COUNT)
+	{
+		_T("传感器参数设置错误 %s", pSensor->name);
+		return 0.0;
+	}
+
+	uint16_t v = s_ADCData[pSensor->offset].value;
+
+	// 不需要进行字节转换
+
+	double d = v;
+
+	// 复制到大寄存器，内部始终为double
+	DATA_TYPE_SET(&(pRegRt->data), DATA_TYPE_DOUBLE, &d);
+
+	_T("传感器实时数据 %s = (%f, %d) %f",
+			pSensor->name, d, v, pRegRt->data);
+
+	return d;
+}
+
 void SysADC_Start(TDevInfo* pDevInfo, uint64_t tick, EOTDate* pDate)
 {
 }
@@ -60,7 +100,7 @@ void SysADC_Update(uint8_t nActiveId, TDevInfo* pDevInfo, uint64_t tick, EOTDate
 {
 	// 48M Div6 = 8M
 	// 480+15个采样周期 = 62.5us
-
+	//_T("ADC DMA: (%d, %d)", s_ADCDMABuffer[0], s_ADCDMABuffer[1]);
 	// 二次滤波
 	int i;
 	uint16_t w;
@@ -79,26 +119,31 @@ void SysADC_Update(uint8_t nActiveId, TDevInfo* pDevInfo, uint64_t tick, EOTDate
 	{
 		for (i=0; i<ADC_CHANNEL_COUNT; i++)
 		{
-			if (s_ADCData[i].count > 0)
-			{
-				// 10 / 15
-				d = s_ADCData[i].total / s_ADCData[i].count;
+			if (s_ADCData[i].count <= 0) continue;
 
-				if (d > 0xFFF) d = 0xFFF;
-				if (d < 0x0) d = 0x0;
+			// 软件平均
+			// 10 / 15
+			d = s_ADCData[i].total / s_ADCData[i].count;
 
-				s_ADCData[i].value = d;
+			if (d > 0xFFF) d = 0xFFF;
+			if (d < 0x0) d = 0x0;
 
-				_T("ADC数值[%d]: %d (%d, %d) (%0.2f / %d)", i,
-						s_ADCData[i].value, s_ADCData[i].min, s_ADCData[i].max,
-						s_ADCData[i].total, s_ADCData[i].count);
+			s_ADCData[i].value = d;
 
-				s_ADCData[i].total = 0.0;
-				s_ADCData[i].count = 0;
-				s_ADCData[i].min = 0x7FFF;
-				s_ADCData[i].max = 0;
-			}
+			_T("ADC数值[%d]: %d (%d, %d) (%0.2f / %d)", i,
+					s_ADCData[i].value, s_ADCData[i].min, s_ADCData[i].max,
+					s_ADCData[i].total, s_ADCData[i].count);
+
+			s_ADCData[i].total = 0.0;
+			s_ADCData[i].count = 0;
+			s_ADCData[i].min = 0x7FFF;
+			s_ADCData[i].max = 0;
 		}
+
+		//
+		// 将设备采集的数据对应到sensor上
+		//
+		F_Sensor_DataSet(pDevInfo->id, (EOFuncSensorData)DoSensorDataRt, pDevInfo, NULL, 0);
 	}
 }
 
@@ -110,7 +155,7 @@ void F_Device_SysADC_Init(TDevInfo* pDevInfo, char* sType, char* sParams)
 
 	memset(&s_ADCData, 0, sizeof(TADCData) * ADC_CHANNEL_COUNT);
 	int i;
-	for (i=0; i<0; i++)
+	for (i=0; i<ADC_CHANNEL_COUNT; i++)
 	{
 		s_ADCData[i].min = 0x7FFF;
 		s_ADCData[i].max = 0;
@@ -123,6 +168,9 @@ void F_Device_SysADC_Init(TDevInfo* pDevInfo, char* sType, char* sParams)
 
 	// 不要在启动之后调用任何配置，否则引起错乱
 	LL_ADC_Enable(ADC1);
+
+	LL_ADC_REG_StartConversionSWStart(ADC1);
+	LL_ADC_REG_SetDMATransfer(ADC1, LL_ADC_REG_DMA_TRANSFER_UNLIMITED);
 
 	pDevInfo->device = DEVICE_SYS_ADC;
 

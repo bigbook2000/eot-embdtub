@@ -77,4 +77,9 @@ void EOG_KeyValue(char* sStr, int nLenStr,
 		char cSplit, char cEnd, char* sKey, int nLenKey, char* sVal, int nLenVal);
 void EOG_KeyValueChar(char* sStr, char cSplit, char** ppKey, char** ppVal);
 
+// 字节流转换为base64
+int EOG_Base64Encode(uint8_t* pBuffer, int nLength, char* pBase64, char cFlag);
+// base64转换为字节流
+int EOG_Base64Decode(char* pBase64, int nLength, uint8_t* pBuffer, char cFlag);
+
 #endif /* EOS_INC_H_ */

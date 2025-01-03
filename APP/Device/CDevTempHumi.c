@@ -19,11 +19,16 @@
 #include "eob_tick.h"
 
 #include "Global.h"
-#include "Config.h"
+#include "AppSetting.h"
 #include "CSensor.h"
 
-double DoSensorDataRt(TDevInfo* pDevInfo, TSensor* pSensor)
+/**
+ * 转换实际收到的数据从device到sensor
+ */
+static double DoSensorDataRt(TSensor* pSensor, void* pTag, uint8_t* pData, int nLength)
 {
+	TDevInfo* pDevInfo = (TDevInfo*)pTag;
+
 	int retain;
 	uint8_t* p;
 	TRegisterData* pRegRt;
@@ -37,6 +42,12 @@ double DoSensorDataRt(TDevInfo* pDevInfo, TSensor* pSensor)
 				pSensor->offset, pSensor->length, pDevInfo->data_count);
 		return 0.0;
 	}
+
+
+	////////////////////////////////////////////////////////////////
+	//
+	// 这里可以进行数值转换，将Modbus的数据转换成实际需要的数据
+	//
 
 	// 这里是设备寄存器
 	p = &(pDevInfo->data[pSensor->offset]);
@@ -52,8 +63,12 @@ double DoSensorDataRt(TDevInfo* pDevInfo, TSensor* pSensor)
 	double d = v / 10.0;
 	if (v > 10000) d = (10000 - v) / 10;
 
+	//
+	//
+	////////////////////////////////////////////////////////////////
+
 	// 复制到大寄存器，内部始终为double
-	DATA_TYPE_SET(&pRegRt->data, DATA_TYPE_DOUBLE, &d);
+	DATA_TYPE_SET(&(pRegRt->data), DATA_TYPE_DOUBLE, &d);
 
 	_T("传感器实时数据 %s = (%f, %d) %f",
 			pSensor->name, d, v, pRegRt->data);
@@ -74,8 +89,6 @@ void DeviceTempHumi_End(TDevInfo* pDevInfo, uint64_t tick, EOTDate* pDate)
 
 void DeviceTempHumi_Update(uint8_t nActiveId, TDevInfo* pDevInfo, uint64_t tick, EOTDate* pDate)
 {
-	int i;
-
 	// 不是自己的时间片，可以不处理
 	if (nActiveId != pDevInfo->id) return;
 
@@ -89,22 +102,10 @@ void DeviceTempHumi_Update(uint8_t nActiveId, TDevInfo* pDevInfo, uint64_t tick,
 	int nDataLen = F_CheckModbusRTU(pDevInfo, pRecvBuffer->buffer, pRecvBuffer->length);
 	if (nDataLen <= 0) return;
 
-	TSensor* pSensor;
-	double d;
-
-	// 处理接收数据
-	TSensor* pSensorList = F_Sensor_List();
-	int nCount = F_Sensor_Count();
-	for (i=0; i<nCount; i++)
-	{
-		pSensor = &pSensorList[i];
-		if (pSensor->device_id != pDevInfo->id) continue;
-
-		d = DoSensorDataRt(pDevInfo, pSensor);
-
-		// 计算统计值
-		F_Sensor_DataCount(pSensor, d);
-	}
+	//
+	// 将设备采集的数据对应到sensor上
+	//
+	F_Sensor_DataSet(pDevInfo->id, (EOFuncSensorData)DoSensorDataRt, pDevInfo, NULL, 0);
 
 	EOS_Buffer_Pop(pRecvBuffer, NULL, nDataLen);
 	_T("RecvBuffer: %d/%d", nDataLen, pRecvBuffer->length);

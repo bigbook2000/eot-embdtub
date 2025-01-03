@@ -13,6 +13,7 @@
 #include "stm32f4xx_ll_iwdg.h"
 #include "stm32f4xx_ll_utils.h"
 
+#include "eos_inc.h"
 #include "eos_buffer.h"
 
 #include "eob_util.h"
@@ -32,6 +33,7 @@ static int s_W25Q_Length = 0;
 
 #define CMD_PROCESS_SIZE 16
 static TCmdProcess s_ListCmdProcess[CMD_PROCESS_SIZE];
+
 
 /**
  * 跳转到APP
@@ -57,6 +59,39 @@ static void Cmd_JumpApp(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 	EOB_JumpApp(ADDRESS_BASE_BIN);
 }
 
+
+/**
+ * 读取版本文件
+ */
+static void Cmd_BinRead(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
+{
+	EOS_Buffer_Pop(tBuffer, NULL, nPos);
+
+	s_CommandFlag = CMD_NONE;
+
+	int nAddress, nLength;
+	uint8_t pBuffer[W25Q_PAGE_SIZE];
+
+	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
+
+	W25Q_ADDRESS_BIN(nAddress, tIAPConfig->region);
+	// 读取长度
+	READ_HEAD_LENGTH(nAddress, pBuffer, nLength);
+	nAddress += W25Q_PAGE_SIZE;
+
+	_T("执行命令: 读取文件%d[%08lX]: %d", tIAPConfig->region, nAddress, nLength);
+
+	int i;
+	int cnt = nLength / W25Q_PAGE_SIZE + 1;
+	for (i=0; i<cnt; i++)
+	{
+		EOB_W25Q_ReadDirect(nAddress, pBuffer, W25Q_PAGE_SIZE);
+		_T("读取文件 [%08lX] %d", nAddress, W25Q_PAGE_SIZE);
+		_Tmb(pBuffer, SIZE_32);
+		nAddress += W25Q_PAGE_SIZE;
+	}
+}
+
 /**
  * 版本文件开始
  */
@@ -77,14 +112,9 @@ static void Cmd_BinBegin(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 
 	//EOB_W25Q_EraseAll();
 	_T("执行命令: 文件开始[版本%d]", tIAPConfig->region);
-	if (tIAPConfig->region == 0)
-	{
-		s_W25Q_Address = W25Q_SECTOR_BIN_1;
-	}
-	else
-	{
-		s_W25Q_Address = W25Q_SECTOR_BIN_2;
-	}
+	W25Q_ADDRESS_BIN(s_W25Q_Address, tIAPConfig->region);
+	// 第一页为预留配置，头4个字节为长度
+	s_W25Q_Address += W25Q_PAGE_SIZE;
 
 	int i;
 	int nAddress = s_W25Q_Address;
@@ -114,6 +144,8 @@ static void Cmd_BinEnd(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 		return;
 	}
 
+	uint8_t pBuffer[W25Q_PAGE_SIZE];
+
 	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
 	s_CommandFlag = CMD_BIN_END;
 
@@ -136,8 +168,6 @@ static void Cmd_BinEnd(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 //	int i, cnt;
 //	int nRead;
 //
-//	// 按页读
-//	uint8_t pBuffer[W25Q_PAGE_SIZE];
 //
 //	cnt = nBinLength / W25Q_PAGE_SIZE + 1;
 //	for (i=0; i<cnt; i++)
@@ -159,20 +189,11 @@ static void Cmd_BinEnd(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 
 	HAL_CRC_DeInit(&s_CRCHandle);
 
-	//
-	// 更新文件大小，同时切换版本
-	if (tIAPConfig->region == 0)
-	{
-		tIAPConfig->bin1_length = s_W25Q_Length;
-	}
-	else
-	{
-		tIAPConfig->bin2_length = s_W25Q_Length;
-	}
-	_T("执行命令: 文件结束[版本%d]", tIAPConfig->region);
+	W25Q_ADDRESS_BIN(s_W25Q_Address, tIAPConfig->region);
+	// 写入长度
+	WRITE_HEAD_LENGTH(s_W25Q_Address, pBuffer, s_W25Q_Length);
 
-	// 不改变APP标识
-	F_IAPConfig_Save(CONFIG_FLAG_NONE);
+	_T("执行命令: 文件结束[版本%d] %d", tIAPConfig->region, s_W25Q_Length);
 
 	s_CommandFlag = CMD_NONE;
 
@@ -199,14 +220,9 @@ static void Cmd_DatBegin(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 	_T("执行命令: 配置开始[版本%d]", tIAPConfig->region);
 	//EOB_W25Q_EraseAll();
 	// 和bin文件不同，配置写入的是当前版本
-	if (tIAPConfig->region == 0)
-	{
-		s_W25Q_Address = W25Q_SECTOR_DAT_1;
-	}
-	else
-	{
-		s_W25Q_Address = W25Q_SECTOR_DAT_2;
-	}
+	W25Q_ADDRESS_DAT(s_W25Q_Address, tIAPConfig->region);
+	// 第一页为预留配置，头4个字节为长度
+	s_W25Q_Address += W25Q_PAGE_SIZE;
 
 	// 配置只占1个区块
 	EOB_W25Q_EraseBlock(s_W25Q_Address);
@@ -231,20 +247,16 @@ static void Cmd_DatEnd(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 		return;
 	}
 
+	uint8_t pBuffer[W25Q_PAGE_SIZE];
+
 	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
 	s_CommandFlag = CMD_DAT_END;
 
-	_T("执行命令: 配置结束[版本%d]", tIAPConfig->region);
+	W25Q_ADDRESS_DAT(s_W25Q_Address, tIAPConfig->region);
+	// 写入长度
+	WRITE_HEAD_LENGTH(s_W25Q_Address, pBuffer, s_W25Q_Length);
 
-	// 更新配置大小
-	if (tIAPConfig->region == 0)
-	{
-		tIAPConfig->dat1_length = s_W25Q_Length;
-	}
-	else
-	{
-		tIAPConfig->dat2_length = s_W25Q_Length;
-	}
+	_T("执行命令: 配置结束[版本%d] %d", tIAPConfig->region, s_W25Q_Length);
 
 	// 不改变APP标识
 	F_IAPConfig_Save(CONFIG_FLAG_NONE);
@@ -264,36 +276,13 @@ static void Cmd_Config(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 	_T("执行命令: 重置配置");
 	s_CommandFlag = CMD_CONFIG;
 
-	uint8_t ra = 0;
-	int blen_a = 0;
-	int dlen_a = 0;
-	int blen_b = 0;
-	int dlen_b = 0;
-
 	// 交换索引
 	TIAPConfig* tIAPConfig = F_IAPConfig_Get();
-	ra = tIAPConfig->region;
-	if (ra == 0)
-	{
-		blen_a = tIAPConfig->bin1_length;
-		dlen_a = tIAPConfig->dat1_length;
-		blen_b = tIAPConfig->bin2_length;
-		dlen_b = tIAPConfig->dat2_length;
-
+	if (tIAPConfig->region == 0)
 		tIAPConfig->region = 1;
-	}
 	else
-	{
-		blen_a = tIAPConfig->bin2_length;
-		dlen_a = tIAPConfig->dat2_length;
-		blen_b = tIAPConfig->bin1_length;
-		dlen_b = tIAPConfig->dat1_length;
-
 		tIAPConfig->region = 0;
-	}
-	_T("版本交换: %d(%d, %d) -> %d(%d, %d)",
-			ra, blen_a, dlen_a,
-			tIAPConfig->region, blen_b, dlen_b);
+	_T("版本交换: -> %d", tIAPConfig->region);
 
 	F_IAPConfig_Save(CONFIG_FLAG_NONE);
 	s_CommandFlag = CMD_NONE;
@@ -470,6 +459,9 @@ void F_Cmd_ProcessSet(uint32_t nCmdId)
 	{
 		case CMD_JUMP_APP: // japp 跳转到APP
 			p->func = (EOFuncCmdProcess)Cmd_JumpApp;
+			break;
+		case CMD_BIN_SHOW: // bin0 打印文件
+			p->func = (EOFuncCmdProcess)Cmd_BinRead;
 			break;
 		case CMD_BIN_BEGIN: // bin1 文件开始
 			p->func = (EOFuncCmdProcess)Cmd_BinBegin;

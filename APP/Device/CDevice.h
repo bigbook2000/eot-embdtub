@@ -18,6 +18,8 @@
 
 #include <stdint.h>
 
+#include "stm32f4xx_ll_gpio.h"
+
 #include <CSensor.h>
 
 #include "eos_buffer.h"
@@ -29,13 +31,9 @@
 #define DEVICE_TYPE_UART4		4
 #define DEVICE_TYPE_UART5		5
 
-#define DEVICE_TYPE_INPUT1		11
-#define DEVICE_TYPE_INPUT2		12
-#define DEVICE_TYPE_OUTPUT1		21
-#define DEVICE_TYPE_OUTPUT2		22
+#define DEVICE_TYPE_GPIO		11
 
-#define DEVICE_TYPE_ADC1_8		58
-#define DEVICE_TYPE_ADC1_9		59
+#define DEVICE_TYPE_ADC1		51
 
 // 设备名称
 #define DEVICE_NONE				0
@@ -94,14 +92,33 @@ TDevInfo;
 
 // IO
 
+typedef struct _stCtrlInfo
+{
+	GPIO_TypeDef* gpio;
+	uint32_t pin;
+
+	uint8_t flag;
+	uint8_t r2;
+
+	// 编号，从0开始
+	uint8_t id;
+	uint8_t set;
+}
+TCtrlInfo;
+
+//#define CTRL_INPUT_COUNT 		2
+//#define CTRL_OUTPUT_COUNT 	2
+#define CTRL_IO_COUNT 	4
+
+
 #define CTRL_SET 		0x1 // 高电平
 #define CTRL_RESET 		0x0 // 低电平
 #define CTRL_NONE 		0xFF // 未知
-typedef void (*FuncCtrlChange)(TDevInfo* pDevInfo, uint8_t nCtrlSet);
+typedef void (*FuncCtrlChange)(TDevInfo* pDevInfo, TCtrlInfo* pCtrlInfo, uint8_t nCtrlSet);
 
 void F_Device_SysSwitch_Init(TDevInfo* pDevInfo, char* sType, char* sParams);
 void F_SysSwitch_ChangeEvent_Add(FuncCtrlChange tCallbackChange);
-void F_SysSwitch_Output_Set(uint8_t nInId, uint8_t nSet);
+uint8_t F_SysSwitch_Output_Set(uint8_t nOutId, uint8_t nSet);
 
 // ADC
 

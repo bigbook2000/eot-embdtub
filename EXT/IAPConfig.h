@@ -41,11 +41,26 @@
 
 // W25Q存储分为5个区，至少18个块，不少于2M
 #define W25Q_SECTOR_INFO			0x00000000 // 信息数据区，保留
-#define W25Q_SECTOR_BIN_1			0x00010000 // 版本1文件区
-#define W25Q_SECTOR_DAT_1			0x00100000 // 版本1数据区
-#define W25Q_SECTOR_BIN_2			0x00110000 // 版本2文件区
-#define W25Q_SECTOR_DAT_2			0x00200000 // 版本2数据区
+#define W25Q_SECTOR_BIN_0			0x00010000 // 版本0文件区
+#define W25Q_SECTOR_DAT_0			0x00100000 // 版本0数据区
+#define W25Q_SECTOR_BIN_1			0x00110000 // 版本1文件区
+#define W25Q_SECTOR_DAT_1			0x00200000 // 版本1数据区
 #define W25Q_SECTOR_DATA_EX			0x00210000 // 逻辑应用数据区，可以存储应用数据
+
+
+// 获取当前地址
+#define W25Q_ADDRESS_BIN(addr, r)	if ((r)==0)(addr)=W25Q_SECTOR_BIN_0;else (addr)=W25Q_SECTOR_BIN_1
+#define W25Q_ADDRESS_DAT(addr, r)	if ((r)==0)(addr)=W25Q_SECTOR_DAT_0;else (addr)=W25Q_SECTOR_DAT_1
+
+/**
+ * 写入头页数据
+ * 头4个字节为长度
+ */
+#define WRITE_HEAD_LENGTH(nAddress, pBuffer, nLength) *((int*)(pBuffer))=(nLength);EOB_W25Q_WriteDirect((nAddress),(pBuffer),W25Q_PAGE_SIZE)
+/**
+ * 读取头页数据
+ */
+#define READ_HEAD_LENGTH(nAddress, pBuffer, nLength) EOB_W25Q_ReadDirect((nAddress),(pBuffer),W25Q_PAGE_SIZE);(nLength)=*((int*)(pBuffer))
 
 
 // Bin版本文件8个块
@@ -53,7 +68,7 @@
 
 
 // IAP的配置存在flash中
-#define IAP_CONFIG_ID 				0x10010006
+#define IAP_CONFIG_ID 				0x10010007
 #define GATE_HOST_LENGTH			64
 #define DEVICE_KEY_LENGTH			64
 
@@ -63,8 +78,6 @@ typedef struct _stTIAPConfig
 	uint32_t id;
 	// 标识
 	uint32_t flag;
-	// Gate服务器地址
-	char gate_host[GATE_HOST_LENGTH];
 	// 设备Key
 	char device_key[DEVICE_KEY_LENGTH];
 
@@ -76,15 +89,6 @@ typedef struct _stTIAPConfig
 	uint8_t r2;
 	uint8_t r3;
 	uint8_t r4;
-
-	// 版本1长度
-	int bin1_length;
-	// 版本2长度
-	int bin2_length;
-	// 配置1长度
-	int dat1_length;
-	// 配置2长度
-	int dat2_length;
 }
 TIAPConfig;
 

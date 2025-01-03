@@ -27,7 +27,7 @@
 #include "eon_http.h"
 #include "eon_tcp.h"
 
-#include "Config.h"
+#include "AppSetting.h"
 #include "IAPCmd.h"
 #include "CDevManager.h"
 #include "CNetManager.h"
@@ -111,7 +111,7 @@ static void OnCmd_DatShow(uint32_t nCmdId, EOTBuffer* tBuffer, int nPos)
 	F_Cmd_SetFlag(CMD_NONE);
 
 	// 打印配置
-	F_LoadAppConfig();
+	F_LoadAppSetting();
 }
 
 // 处理外设任务
@@ -163,7 +163,7 @@ void f_Task_Net(void const * arg)
 // 主线程
 void f_Task_Main(void const * arg)
 {
-	F_AppConfigInit();
+	F_AppSettingInit();
 
 	osDelay(100);
 

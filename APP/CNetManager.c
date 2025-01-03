@@ -32,7 +32,7 @@
 #include "eon_mqtt.h"
 
 #include "Global.h"
-#include "Config.h"
+#include "AppSetting.h"
 #include "CProtocol.h"
 
 // 网络是否准备好
@@ -72,7 +72,7 @@ static void NetChannelInit(TNetChannel* pNetChannel, uint8_t nCfgId)
 	// 暂时对应
 	pNetChannel->gprs_id = pNetChannel->id;
 
-	char* sType = F_ConfigGetString("server%d.type", nCfgId);
+	char* sType = F_SettingGetString("svr%d.type", nCfgId);
 	if (strnstr(sType, "tcp", KEY_LENGTH) != NULL)
 	{
 		pNetChannel->type = NET_TCP;
@@ -94,9 +94,10 @@ static void NetChannelInit(TNetChannel* pNetChannel, uint8_t nCfgId)
 	pNetChannel->cfg_id = nCfgId;
 	pNetChannel->status = 0;
 
-	//_T("配置网络[%d]: %d -> %d", pNetChannel->id, pNetChannel->cfg_id, pNetChannel->gprs_id);
+	_T("初始化网络服务[%d]: %d, %d, %d",
+			pNetChannel->id, pNetChannel->type, pNetChannel->cfg_id, pNetChannel->gprs_id);
 
-	char* sProtocol = F_ConfigGetString("server%d.protocol", nCfgId);
+	char* sProtocol = F_SettingGetString("svr%d.protocol", nCfgId);
 	F_Protocol_Type(pNetChannel, sProtocol);
 
 	int i;
@@ -105,7 +106,7 @@ static void NetChannelInit(TNetChannel* pNetChannel, uint8_t nCfgId)
 
 	uint8_t cnt;
 
-	char* sTick = F_ConfigGetString("server%d.tick", nCfgId);
+	char* sTick = F_SettingGetString("svr%d.tick", nCfgId);
 	cnt = 8;
 	strcpy(s, sTick); // 避免破坏性分割
 	if (EOG_SplitString(s, -1, ',', (char**)ss, &cnt) != TICK_UPDATE_MAX)
@@ -146,7 +147,7 @@ void F_NetManager_Init(void)
 		memset(pNetChannel, 0, sizeof(TNetChannel));
 		pNetChannel->id = i;
 	}
-	cnt = F_ConfigGetInt32("server.count");
+	cnt = F_SettingGetInt32("svr.count");
 	for (i=0; i<cnt; i++)
 	{
 		NetChannelInit(&s_NetChannels[i], i + 1);

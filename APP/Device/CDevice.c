@@ -23,7 +23,7 @@
 #include "eob_uart.h"
 #include "eob_debug.h"
 
-#include "Config.h"
+#include "AppSetting.h"
 #include "Global.h"
 
 static EOTDMAInfo s_DMAInfoRecv3;
@@ -41,6 +41,9 @@ D_STATIC_BUFFER_DECLARE(s_DMABufferSend4, SIZE_128)
 static EOTDMAInfo s_DMAInfoSend5;
 D_STATIC_BUFFER_DECLARE(s_DMABufferSend5, SIZE_128)
 
+/**
+ * 将设备和对应串口联系起来
+ */
 void F_SetModbusRTU(TDevInfo* pDevInfo, char* sCommand)
 {
 	// 转换二进制字符串（大写），不要超过256
@@ -144,7 +147,7 @@ static void UartInit(char* sName, USART_TypeDef* uart,
 		DMA_TypeDef* dmaSend, uint32_t nStreamSend,
 		EOTDMAInfo* pDMAInfoSend, EOTBuffer* pBufferSend)
 {
-	char* sUart = F_ConfigGetString(sName);
+	char* sUart = F_SettingGetString(sName);
 	_T("初始化%s: %s", sName, sUart);
 
 	char s[VALUE_SIZE];

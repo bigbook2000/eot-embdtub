@@ -23,8 +23,11 @@
 // 每次最大读取1K
 #define TCP_RECV_MAX 	1024
 
-// 由于命令是串行，记录最后一次操作通道
-static uint8_t s_LastChannelId = 0xFF;
+// 字节数据太长返回失败，将大包拆小包分批发送
+// 最大发送包
+#define TCP_SEND_MAX1 	1600
+#define TCP_SEND_MAX2 	2400
+
 
 // 发送数据队列
 static EOTList s_ListSendData;
@@ -76,7 +79,7 @@ static void TcpSendDataFree(EOTList* tpList, EOTListItem* tpItem)
 }
 
 // TCP连接
-static int OnTcpCmd_QIOPEN(EOTBuffer* tBuffer)
+static int OnTcpCmd_QIOPEN(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 {
 	// QIOPEN指令先返回OK，后返回结果
 
@@ -119,18 +122,18 @@ static int OnTcpCmd_QIOPEN(EOTBuffer* tBuffer)
 }
 
 // 处理关闭命令（手动）
-static int OnTcpCmd_QICLOSE(EOTBuffer* tBuffer)
+static int OnTcpCmd_QICLOSE(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 {
 	EOTConnect* hConnect;
 	if (CHECK_STR("OK"))
 	{
-		if (s_LastChannelId < 0 || s_LastChannelId >= MAX_TCP_CONNECT)
+		if (pCmd->channel >= MAX_TCP_CONNECT)
 		{
-			_T("*** 错误的连接通道[%d]", s_LastChannelId);
+			_T("*** 错误的连接通道[%d]", pCmd->channel);
 			return 0;
 		}
 
-		hConnect = &s_TcpConnectList[s_LastChannelId];
+		hConnect = &s_TcpConnectList[pCmd->channel];
 
 		if (hConnect->status != STATUS_NONE)
 		{
@@ -192,14 +195,14 @@ static int OnTcpCmd_QISEND(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 		}
 
 		_T("OnTcpCmd_QISEND[%d]: EORROR %d/%d, Length = %d",
-				s_LastChannelId, (int)pCmd->tag, (int)item->length,
+				pCmd->channel, (int)pCmd->tag, (int)item->length,
 				s_ListSendData.count);
 
 		// 必须释放原始数据
 		EOS_List_ItemFree(&s_ListSendData, item, (EOFuncListItemFree)TcpSendDataFree);
 
 		// 关闭连接
-		EON_Tcp_Close(s_LastChannelId);
+		EON_Tcp_Close(pCmd->channel);
 
 		// 返回0结束命令
 		return 0;
@@ -227,8 +230,6 @@ static void TcpCmd_QIRD(uint8_t nChannel)
 		(uint8_t*)sCmdText, -1,
 		GPRS_MODE_AT, GPRS_MODE_DATA,
 		GPRS_TIME_LONG, GPRS_TRY_ONCE, GPRS_CMD_NORMAL);
-
-	// 记录上一次接收的通道
 	pCmd->tag = nChannel;
 }
 
@@ -305,10 +306,10 @@ static int OnTcpCommand(EOTGprsCmd* pCmd, EOTBuffer* tBuffer)
 	{
 	// TCP连接
 	case EOE_GprsCmd_QIOPEN:
-		return OnTcpCmd_QIOPEN(tBuffer);
+		return OnTcpCmd_QIOPEN(pCmd, tBuffer);
 	// TCP关闭
 	case EOE_GprsCmd_QICLOSE:
-		return OnTcpCmd_QICLOSE(tBuffer);
+		return OnTcpCmd_QICLOSE(pCmd, tBuffer);
 	// 发送数据
 	case EOE_GprsCmd_QISEND:
 		return OnTcpCmd_QISEND(pCmd, tBuffer);
@@ -367,22 +368,20 @@ static int OnTcpEvent(EOTBuffer* tBuffer)
 	nChannel = atoi(ppArray[1]);
 
 	_T("TCP事件响应[%d]: %s", nChannel, sCmd);
+	if (nChannel < 0 || nChannel >= MAX_TCP_CONNECT) return 0;
 
-	if (nChannel >= 0 && nChannel < MAX_TCP_CONNECT)
+	if (strstr(sCmd, "recv") != NULL)
 	{
-		if (strstr(sCmd, "recv") != NULL)
-		{
-			// 直吐模式
-			int nRead = atoi(ppArray[2]);
-			EON_Gprs_DataGet(nChannel, nRead);
+		// 直吐模式
+		int nRead = atoi(ppArray[2]);
+		EON_Gprs_DataGet(nChannel, nRead);
 
-			// 继续读取数据
-			return tBuffer->length;
-		}
-		else if (strstr(sCmd, "closed") != NULL)
-		{
-			EON_Tcp_Close(nChannel);
-		}
+		// 继续读取数据
+		return tBuffer->length;
+	}
+	else if (strstr(sCmd, "closed") != NULL)
+	{
+		EON_Tcp_Close(nChannel);
 	}
 
 	return 0;
@@ -461,23 +460,23 @@ void EON_Tcp_Open(uint8_t nChannel)
 	sprintf(sCmdText, "AT+QIOPEN=1,%d,\"TCP\",\"%s\",%d,0,1\r\n",
 			hConnect->channel, (const char*)hConnect->host, hConnect->port);
 
-	// 标记命令通道
-	s_LastChannelId = nChannel;
-
 	// 命令只重试1次，由外部逻辑处理重连问题
-	EON_Gprs_SendCmdPut(
+	EOTGprsCmd* pCmd = EON_Gprs_SendCmdPut(
 			EOE_GprsCmd_QIOPEN,
 			(uint8_t*)sCmdText, -1,
 			GPRS_MODE_AT, GPRS_MODE_AT,
 			GPRS_TIME_LONG, GPRS_TRY_ONCE, GPRS_CMD_NORMAL);
+	// 标记命令通道
+	pCmd->channel = nChannel;
 }
 
-// 发送数据命令
-void EON_Tcp_SendData(uint8_t nChannel, uint8_t* pData, int nLength)
+/**
+ * 向gprs发送命令
+ * 数据需要缓存
+ */
+void TcpPushSendData(uint8_t nChannel, uint8_t* pData, int nLength)
 {
 	// 数据先缓存
-	EOTConnect* hConnect = &s_TcpConnectList[nChannel];
-
 	// 从堆上分配空间
 	uint8_t* pDataAlloc = (uint8_t*)pvPortMalloc(nLength);
 	if (pDataAlloc == NULL)
@@ -489,15 +488,14 @@ void EON_Tcp_SendData(uint8_t nChannel, uint8_t* pData, int nLength)
 
 	memcpy(pDataAlloc, pData, nLength);
 
-	++s_SendDataId;
-	EOS_List_Push(&s_ListSendData, s_SendDataId, pDataAlloc, nLength);
-	_T("*** EOS_List_Push[%d]: %d/%d", s_ListSendData.count, (int)s_SendDataId, nLength);
+	// 这个顺序号用于实际发送时取出对应的数据
+	uint32_t nSendId = ++s_SendDataId;
+
+	EOS_List_Push(&s_ListSendData, nSendId, pDataAlloc, nLength);
+	_T("*** EOS_List_Push[%d]: %d/%d", s_ListSendData.count, (int)nSendId, nLength);
 
 	char sCmdText[GPRS_CMD_SIZE];
-	sprintf(sCmdText, "AT+QISEND=%d,%d\r\n", hConnect->channel, nLength);
-
-	// 标记命令通道
-	s_LastChannelId = nChannel;
+	sprintf(sCmdText, "AT+QISEND=%d,%d\r\n", nChannel, nLength);
 
 	EOTGprsCmd* pCmd = EON_Gprs_SendCmdPut(
 			EOE_GprsCmd_QISEND,
@@ -505,8 +503,54 @@ void EON_Tcp_SendData(uint8_t nChannel, uint8_t* pData, int nLength)
 			GPRS_MODE_AT, GPRS_MODE_AT,
 			GPRS_TIME_LONG, GPRS_TRY_ONCE, GPRS_CMD_NORMAL); // 不解析OK
 
+	// 标记命令通道
+	pCmd->channel = nChannel;
 	// 标识并校验
-	pCmd->tag = s_SendDataId;
+	pCmd->tag = nSendId;
+}
+
+/**
+ * 发送数据命令
+ * 这里会创建一个数据副本，因此外部应用无需管理传输的数据，可以使用临时变量或立即复用
+ */
+void EON_Tcp_SendData(uint8_t nChannel, uint8_t* pData, int nLength)
+{
+	//EOTConnect* hConnect = &s_TcpConnectList[nChannel];
+
+	int nPos = 0;
+	int nCount = nLength;
+	int i;
+
+	// 计算分包
+	// 不用while循环
+	for (i=0; i<0xFF; i++)
+	{
+		if (nLength <= 0) break;
+
+		if (nLength > TCP_SEND_MAX1)
+		{
+			if (nLength > TCP_SEND_MAX2)
+			{
+				// 包太大
+				nCount = TCP_SEND_MAX1;
+			}
+			else
+			{
+				// 不大不小分一半，避免一个包大一个包小
+				nCount = nLength / 2;
+			}
+		}
+		else
+		{
+			// 包太小直接全部发送
+			nCount = nLength;
+		}
+
+		TcpPushSendData(nChannel, &pData[nPos], nCount);
+
+		nPos += nCount;
+		nLength -= nCount;
+	}
 }
 
 // 关闭连接
@@ -518,20 +562,17 @@ void EON_Tcp_Close(uint8_t nChannel)
 		return;
 	}
 
-	EOTConnect* hConnect = &s_TcpConnectList[nChannel];
-
-	// 标记命令通道
-	s_LastChannelId = nChannel;
-
 	// 发送关闭
 	char sCmdText[GPRS_CMD_SIZE];
 	sprintf(sCmdText, "AT+QICLOSE=%d\r\n", nChannel);
 
-	EON_Gprs_SendCmdPut(
+	EOTGprsCmd* pCmd = EON_Gprs_SendCmdPut(
 		EOE_GprsCmd_QICLOSE,
 		(uint8_t*)sCmdText, -1,
 		GPRS_MODE_AT, GPRS_MODE_AT,
 		GPRS_TIME_LONG, GPRS_TRY_NORMAL, GPRS_CMD_RESET);
+	// 标记命令通道
+	pCmd->channel = nChannel;
 }
 
 

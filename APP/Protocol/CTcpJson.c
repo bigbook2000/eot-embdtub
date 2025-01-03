@@ -29,7 +29,7 @@
 #include "eon_mqtt.h"
 
 #include "Global.h"
-#include "Config.h"
+#include "AppSetting.h"
 #include "CSensor.h"
 
 
@@ -50,7 +50,7 @@ static void OnTcpClose(EOTConnect *connect, int code)
 
 static int TcpJson_SendBegin(char* pSendBuffer, EOTDate* pDate, int nDataTick)
 {
-	char sDateTime[16];
+	char sDateTime[32];
 	sprintf(sDateTime, "%04d%02d%02d%02d%02d%02d",
 			YEAR_ZERO + pDate->year, pDate->month, pDate->date,
 			pDate->hour, pDate->minute, pDate->second);
@@ -107,7 +107,7 @@ static void TcpJson_SendDataRt(char* pSendBuffer, uint8_t nChannel, EOTDate* pDa
 {
 	int i;
 
-	char sDateTime[16];
+	char sDateTime[32];
 	sprintf(sDateTime, "%04d%02d%02d%02d%02d%02d",
 			YEAR_ZERO + pDate->year, pDate->month, pDate->date,
 			pDate->hour, pDate->minute, pDate->second);
@@ -149,8 +149,8 @@ static void TcpJson_Start(TNetChannel* pNetChannel)
 {
 	EON_Tcp_SetConnect(
 			pNetChannel->gprs_id,
-			F_ConfigGetString("server%d.host", pNetChannel->cfg_id),
-			F_ConfigGetInt32("server%d.port", pNetChannel->cfg_id),
+			F_SettingGetString("svr%d.host", pNetChannel->cfg_id),
+			F_SettingGetInt32("svr%d.port", pNetChannel->cfg_id),
 			(EOFuncNetOpen)OnTcpOpen,
 			(EOFuncNetRecv)OnTcpRecv,
 			(EOFuncNetClose)OnTcpClose);
@@ -244,7 +244,7 @@ void F_Protocol_TcpJson_Init(TNetChannel* pNetChannel, char* sType)
 	char* ss[32];
 	uint8_t cnt;
 
-	char* sForm = F_ConfigGetString("server%d.form", pNetChannel->cfg_id);
+	char* sForm = F_SettingGetString("svr%d.form", pNetChannel->cfg_id);
 
 	// 有多少个传感器数据对应多少个因子
 	cnt = MAX_SENSOR;
@@ -255,7 +255,7 @@ void F_Protocol_TcpJson_Init(TNetChannel* pNetChannel, char* sType)
 		return;
 	}
 
-	//F_ConfigAdd("server2.form", "deviceId:TEST2021-01,temp:1,humi:2");
+	//F_ConfigAdd("svr2.form", "deviceId:TEST2021-01,temp:1,humi:2");
 	char sKey[SIZE_32];
 	char sVal[SIZE_128];
 	int nSensorId;

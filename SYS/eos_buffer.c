@@ -126,6 +126,9 @@ int EOS_Buffer_Push(EOTBuffer* tpBuffer, void* pData, int nLength)
 	return tpBuffer->length;
 }
 
+/**
+ * 将tpBufferSrc中的数据追加到tpBufferDst中
+ */
 int EOS_Buffer_PushBuffer(EOTBuffer* tpBufferDst, EOTBuffer* tpBufferSrc)
 {
 	if (tpBufferDst->buffer == NULL) return -1;

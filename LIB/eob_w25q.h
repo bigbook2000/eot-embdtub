@@ -47,6 +47,8 @@ void EOB_W25Q_EraseBlock(uint32_t nAddress);
 int EOB_W25Q_WriteData(uint32_t nAddress, void* pData, int nLength);
 // 页内直接写入
 void EOB_W25Q_WriteDirect(uint32_t nAddress, void* pData, int nLength);
+// 跨页读取
+void EOB_W25Q_ReadData(uint32_t nAddress, void* pData, int nLength);
 // 页内直接读取
 void EOB_W25Q_ReadDirect(uint32_t nAddress, void* pData, int nLength);
 // 页内校验

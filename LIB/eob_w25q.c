@@ -223,7 +223,10 @@ void EOB_W25Q_EraseBlock(uint32_t nAddress)
 
 	W25Q_WaitBusy();
 }
-// 页内直接写入
+
+/**
+ * 页内直接写入
+ */
 void EOB_W25Q_WriteDirect(uint32_t nAddress, void* pData, int nLength)
 {
 	int i;
@@ -261,7 +264,9 @@ void EOB_W25Q_WriteDirect(uint32_t nAddress, void* pData, int nLength)
 
 	W25Q_WaitBusy();
 }
-// 页内直接读取
+/**
+ * 页内直接读取
+ */
 void EOB_W25Q_ReadDirect(uint32_t nAddress, void* pData, int nLength)
 {
 	int i;
@@ -296,7 +301,37 @@ void EOB_W25Q_ReadDirect(uint32_t nAddress, void* pData, int nLength)
 
 	W25Q_CS_END();
 }
-// 页内校验
+
+void EOB_W25Q_ReadData(uint32_t nAddress, void* pData, int nLength)
+{
+	uint32_t nRead;
+
+	int i, cnt;
+
+	// 首位都可能分段，多循环几次
+	cnt = nLength / W25Q_PAGE_SIZE + 5;
+
+	for (i=0; i<cnt; i++)
+	{
+		if (nLength <= 0) break;
+
+		nRead = W25Q_PAGE_SIZE - nAddress % W25Q_PAGE_SIZE;
+		if (nRead > nLength)
+		{
+			nRead = nLength;
+		}
+
+		EOB_W25Q_ReadDirect(nAddress, pData, nRead);
+
+		nAddress += nRead;
+		pData += nRead;
+		nLength -= nRead;
+	}
+}
+
+/**
+ * 页内校验
+ */
 int EOB_W25Q_CheckDirect(uint32_t nAddress, void* pData, int nLength)
 {
 	int i;
@@ -326,7 +361,9 @@ int EOB_W25Q_CheckDirect(uint32_t nAddress, void* pData, int nLength)
 
 	return nCheckCount;
 }
-// 跨页写入
+/**
+ * 跨页写入
+ */
 int EOB_W25Q_WriteData(uint32_t nAddress, void* pData, int nLength)
 {
 	uint32_t nWrite;

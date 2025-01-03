@@ -75,6 +75,12 @@ typedef struct _stSensor
 }
 TSensor;
 
+// 一个设备对应多个Sensor
+// 转换函数
+typedef double (*EOFuncSensorData)(TSensor* pSensor, void* pTag, uint8_t* pData, int nLength);
+// 将设备采集的数据对应到sensor上
+void F_Sensor_DataSet(uint8_t nDeviceId, EOFuncSensorData tCallbackData, void* pTag, uint8_t* pData, int nLength);
+
 void F_Sensor_Type(TSensor* pSensor, char* sName, char* sDevice, char* sTick, char* sData);
 
 TSensor* F_Sensor_Init(uint8_t nCount);

@@ -51,6 +51,7 @@
 static uint64_t s_LastActiveTick = 0L;
 
 // DMA信息
+// 2048，每次接收数据不要超过这个数
 static EOTDMAInfo s_GprsDMAInfo;
 
 // 有效数据缓存，避免交换超过2000的数据
@@ -120,7 +121,7 @@ static uint8_t s_PowerCount = 0;
 
 // 信号
 static uint8_t s_CSQ = 0;
-unsigned char EON_Gprs_CSQ(void)
+uint8_t EON_Gprs_CSQ(void)
 {
 	return s_CSQ;
 }
@@ -358,6 +359,7 @@ static void GprsCmdFree(EOTList* tpList, EOTListItem* tpItem)
 	}
 }
 
+static EOTGprsCmd s_GprsCmdEmpty;
 /**
  * 插入命令
  * @param nCmdId 命令标识
@@ -379,6 +381,14 @@ EOTGprsCmd* EON_Gprs_SendCmdPut(
 		int8_t nSendMode, int8_t nRecvMode,
 		int16_t nTimeout, int8_t nTryCount, int8_t nReset)
 {
+	// 还未准备好
+	if (s_GprsStatus == GPRS_STATUS_NONE)
+	{
+		_T("命令丢弃[%d]: HeapSize = %u, List = %d", nCmdId, xPortGetFreeHeapSize(), s_ListCmdSend.count);
+		// 返回一个空的，避免空指针
+		return &s_GprsCmdEmpty;
+	}
+
 	_T("追加命令[%d]: HeapSize = %u, List = %d", nCmdId, xPortGetFreeHeapSize(), s_ListCmdSend.count);
 
 	// 从堆上分配空间
@@ -411,6 +421,9 @@ EOTGprsCmd* EON_Gprs_SendCmdPut(
 
 	cmd->id = nCmdId;
 	cmd->tag = 0;
+	cmd->channel = 0xFF;
+	cmd->r1 = 0;
+	cmd->r2 = 0;
 
 	cmd->send_mode = nSendMode;
 	cmd->recv_mode = nRecvMode;
@@ -481,10 +494,13 @@ void EON_Gprs_Power(void)
 	EOS_Buffer_Clear(&s_GprsDMABuffer);
 	EOS_Buffer_Clear(&s_GprsRecvData);
 
+	// 接收数据标识
+	s_CmdRecvCount = 0;
 	// 命令标识复位
 	EON_Gprs_SendCmdPop();
 
 	EOS_List_Clear(&s_ListCmdSend, (EOFuncListItemFree)GprsCmdFree);
+
 
 	osDelay(500);
 
@@ -1104,6 +1120,8 @@ static void GprsRecvProcess(uint64_t tick)
 	// DMARecvBuffer();
 	if (s_GprsDMABuffer.length >= GPRS_DATA_SIZE)
 	{
+		_T("**** DMA Overflow %d - %d",
+						s_GprsDMAInfo.data->length, GPRS_DATA_SIZE);
 		// 数据太多了
 		EOS_Buffer_Clear(&s_GprsDMABuffer);
 	}
@@ -1119,6 +1137,8 @@ static void GprsRecvProcess(uint64_t tick)
 
 	// 标记时间戳
 	s_LastActiveTick = tick;
+	_T("**** DMA GPRS %d, %d",
+		s_GprsDMAInfo.data->length, s_GprsRecvBuffer.length);
 
 	// 取出DMA缓存，放入二级命令缓存
 	EOS_Buffer_PushBuffer(&s_GprsRecvBuffer, &s_GprsDMABuffer);

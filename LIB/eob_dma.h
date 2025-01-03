@@ -15,7 +15,7 @@
 #include "stm32f4xx_ll_dma.h"
 
 // æ≤Ã¨DMAª∫¥Ê¥Û–°
-#define DMA_BUFFER_SIZE 		1024
+#define DMA_BUFFER_SIZE 		2048
 
 //
 // DMAª∫¥Ê

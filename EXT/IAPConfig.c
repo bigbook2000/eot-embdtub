@@ -75,7 +75,6 @@ int F_IAPConfig_Load(void)
 	memset(&s_IAPConfig, 0, sizeof(TIAPConfig));
 
 	EOB_Flash_Read(ADDRESS_BASE_CFG, &s_IAPConfig, sizeof(TIAPConfig));
-	s_IAPConfig.gate_host[GATE_HOST_LENGTH - 1] = '\0';
 	s_IAPConfig.device_key[DEVICE_KEY_LENGTH - 1] = '\0';
 
 	_T("加载 Flash Em 配置[%08X] : %s, 当前版本%d",
@@ -100,7 +99,6 @@ int F_IAPConfig_Load(void)
 		return -1;
 	}
 
-	_T("网关地址: %s", s_IAPConfig.gate_host);
 	_T("设备标识: %s", s_IAPConfig.device_key);
 
 	return 0;

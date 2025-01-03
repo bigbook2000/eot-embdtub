@@ -17,7 +17,7 @@
 #include "eob_date.h"
 
 #include "Global.h"
-#include "Config.h"
+#include "AppSetting.h"
 
 // 统计数据时间提前量(秒)
 #define SENSOR_TIME_LEAD 	15
@@ -268,4 +268,27 @@ uint8_t F_Sensor_DataReady(int nDataDelay, int nDataTick)
 	}
 
 	return EO_TRUE;
+}
+
+/**
+ * 将设备采集的数据对应到sensor上
+ * 一个设备对应多个Sensor
+ */
+void F_Sensor_DataSet(uint8_t nDeviceId, EOFuncSensorData tCallbackData,
+		void* pTag, uint8_t* pData, int nLength)
+{
+	int i;
+
+	double d;
+	TSensor* pSensor;
+	for (i=0; i<s_SensorCount; i++)
+	{
+		pSensor = &s_SensorList[i];
+		if (pSensor->device_id != nDeviceId) continue;
+
+		d = tCallbackData(pSensor, pTag, pData, nLength);
+
+		// 计算统计值
+		F_Sensor_DataCount(pSensor, d);
+	}
 }

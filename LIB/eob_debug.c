@@ -189,7 +189,8 @@ void EOB_Debug_Print(char* sInfo, ...)
 	if ((s_DebugOutputCacheLength1 + len) < (DEBUG_OUTPUT_CACHE_SIZE-1))
 	{
 		// 包含结束符
-		strncpy(&s_DebugOutputCache1[s_DebugOutputCacheLength1], s_PrintInfo, len+1);
+		strncpy(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
+				s_PrintInfo, (DEBUG_OUTPUT_CACHE_SIZE - s_DebugOutputCacheLength1));
 	}
 	else
 	{
@@ -235,11 +236,13 @@ void EOB_Debug_PrintLine(char* sInfo, ...)
 	int pos = s_DebugOutputCacheLength1;
 	if ((s_DebugOutputCacheLength1 + len + 17) < (DEBUG_OUTPUT_CACHE_SIZE-1))
 	{
-		sprintf(&s_DebugOutputCache1[pos], "[%02d/%02d %02d:%02d:%02d]",
+		snprintf(&s_DebugOutputCache1[pos],
+				(DEBUG_OUTPUT_CACHE_SIZE - pos),
+				"[%02d/%02d %02d:%02d:%02d]",
 				tpDate.month, tpDate.date, tpDate.hour, tpDate.minute, tpDate.second);
 		pos += 16;
 
-		strncpy(&s_DebugOutputCache1[pos], s_PrintInfo, len);
+		strncpy(&s_DebugOutputCache1[pos], s_PrintInfo, (DEBUG_OUTPUT_CACHE_SIZE - pos));
 		pos += len;
 
 		s_DebugOutputCache1[pos] = '\n';
@@ -283,7 +286,8 @@ void EOB_Debug_PrintTime()
 
 	if ((s_DebugOutputCacheLength1 + 16) < (DEBUG_OUTPUT_CACHE_SIZE-1))
 	{
-		int len = sprintf(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
+		int len = snprintf(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
+				(DEBUG_OUTPUT_CACHE_SIZE - s_DebugOutputCacheLength1),
 				"[%02d/%02d %02d:%02d:%02d]",
 				tpDate.month, tpDate.date, tpDate.hour, tpDate.minute, tpDate.second);
 		s_DebugOutputCacheLength1 += len;
@@ -308,16 +312,23 @@ void EOB_Debug_PrintTime()
 	LL_IWDG_ReloadCounter(IWDG);
 #endif // #ifdef PRINT_ASYNC
 }
-// 打印内存
+
+/**
+ * 打印内存，主要用于调试
+ */
 void EOB_Debug_PrintBin(void* pData, int nLength)
 {
 	uint8_t* pBuffer = pData;
 	int i, pos;
 
+	int nLength0 = nLength;
+
 	// 防止溢出
 	int count = DEBUG_BUFFER_SIZE / 3 - 5;
 	if (nLength < count) count = nLength;
-	if (nLength > 500) nLength = 500;
+
+	// 限制，最多输出200个，调试用
+	if (nLength > 200) nLength = 200;
 
 #ifdef PRINT_ASYNC
 	// 进入锁
@@ -326,9 +337,11 @@ void EOB_Debug_PrintBin(void* pData, int nLength)
 	if ((s_DebugOutputCacheLength1 + nLength * 3) < (DEBUG_OUTPUT_CACHE_SIZE-1))
 	{
 		pos = s_DebugOutputCacheLength1;
+		pos += snprintf(&s_DebugOutputCache1[pos], (DEBUG_OUTPUT_CACHE_SIZE - pos), "<%04d> ", nLength0);
+
 		for (i=0; i<nLength; i++)
 		{
-			pos += sprintf(&s_DebugOutputCache1[pos], "%02X ", *pBuffer);
+			pos += snprintf(&s_DebugOutputCache1[pos], (DEBUG_OUTPUT_CACHE_SIZE - pos), "%02X ", *pBuffer);
 			++pBuffer;
 		}
 
@@ -346,6 +359,10 @@ void EOB_Debug_PrintBin(void* pData, int nLength)
 	TASK_LOCK_END();
 	// 退出锁
 #else // #ifdef PRINT_ASYNC
+
+	// 直接实时输出
+	snprintf(s_PrintInfo, DEBUG_BUFFER_SIZE, "<%04d> ", nLength0);
+	printf(s_PrintInfo);
 
 	pos = 0;
 	for (i=0; i<nLength; i++)
