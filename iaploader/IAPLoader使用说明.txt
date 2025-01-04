@@ -1,0 +1,2 @@
+IAPLoader主要配合EOT终端应用固件烧录和升级，可直接使用串口工具进行操作。
+其Flash地址为 0x08000000-0x0800BFFF 共48K，在EXT/IAPConfig.h中有定义。
