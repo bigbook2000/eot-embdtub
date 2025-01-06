@@ -656,24 +656,24 @@ static void OnTcpHJ212_3111(EOTConnect *tConnect, char* pCPStr, char* pSendBuffe
 
 
 /**
- * 控制命令
- * 主要用于开关量，GPOut+序号，从1开始
+ * 接收上位机控制命令
+ * 主要用于开关量，TGPOut+序号，从1开始
  */
-static void OnTcpHJ212_3123(EOTConnect *tConnect, char* pCPStr, char* pSendBuffer)
+static void OnTcpHJ212_3104(EOTConnect *tConnect, char* pCPStr, char* pSendBuffer)
 {
 	uint8_t i;
 	char* ppArray[SIZE_128];
 	uint8_t nCount = SIZE_128;
 	if (EOG_SplitString(pCPStr, -1, ';', ppArray, &nCount) <= 0)
 	{
-		_T("HJ212错误的命令3123[%d]: %s", tConnect->channel, pCPStr);
+		_T("HJ212错误的命令3104[%d]: %s", tConnect->channel, pCPStr);
 		return;
 	}
 
 	EOTDate tDate = {0};
 	EOB_Date_Get(&tDate);
 
-	int len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3123");
+	int len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3104");
 
 	int nId;
 	int nSet;
@@ -734,9 +734,9 @@ static void OnCtrlChange_Input(TDevInfo* pDevInfo, TCtrlInfo* pCtrlInfo, uint8_t
 
 
 /**
- * 处理控制开关事件
+ * 下发开关输入状态
  */
-static void TcpHJ212_Send3124(uint8_t nChannel)
+static void TcpHJ212_Send3103(uint8_t nChannel)
 {
 	uint8_t flag = EO_FALSE;
 	int i;
@@ -759,7 +759,7 @@ static void TcpHJ212_Send3124(uint8_t nChannel)
 	EOTDate tDate = {0};
 	EOB_Date_Get(&tDate);
 
-	int len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3124");
+	int len = TcpHJ212SendBegin(pSendBuffer, &tDate, "3103");
 
 	for (i=0; i<CTRL_IO_COUNT; i++)
 	{
@@ -854,10 +854,10 @@ static uint8_t OnTcpHJ212(EOTConnect* tConnect, uint8_t* pData, int nLength)
 		// 升级命令
 		OnTcpHJ212_3111(tConnect, pCPStr, pSendBuffer);
 	}
-	else if (strcmp(pCNStr, "3123") == 0)
+	else if (strcmp(pCNStr, "3104") == 0)
 	{
 		// 控制命令
-		OnTcpHJ212_3123(tConnect, pCPStr, pSendBuffer);
+		OnTcpHJ212_3104(tConnect, pCPStr, pSendBuffer);
 	}
 	else if (strcmp(pCNStr, "3199") == 0)
 	{
@@ -1029,7 +1029,7 @@ static void TcpHJ212_Update(TNetChannel* pNetChannel, uint64_t tick, EOTDate* pD
 	// 提高控制响应时间
 	if (EON_Tcp_IsConnect(pNetChannel->gprs_id))
 	{
-		TcpHJ212_Send3124(pNetChannel->gprs_id);
+		TcpHJ212_Send3103(pNetChannel->gprs_id);
 	};
 
 	// 以0点为基点

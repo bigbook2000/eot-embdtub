@@ -171,14 +171,14 @@ void f_Task_Main(void const * arg)
 	taskDevHandle = osThreadCreate(osThread(taskDev), NULL);
 	if (taskDevHandle == NULL)
 	{
-		_Pf("osThreadCreate Fail : Dev\r\n");
+		_P("osThreadCreate Fail : Dev\r\n");
 	}
 
 	osThreadDef(taskNet, f_Task_Net, osPriorityNormal, 0, 1024);
 	taskNetHandle = osThreadCreate(osThread(taskNet), NULL);
 	if (taskNetHandle == NULL)
 	{
-		_Pf("osThreadCreate Fail : Net\r\n");
+		_P("osThreadCreate Fail : Net\r\n");
 	}
 
 	// ÎðÍü³õÊ¼»¯
@@ -204,13 +204,13 @@ void AppMain(void)
 	//
 	EOB_Debug_Init();
 
-	_Pf("\r\n");
-	_Pf("********************************\r\n");
-	_Pf("**   EOIOTAPP\r\n");
-	_Pf("**   Type = %s\r\n", __APP_BIN_TYPE);
-	_Pf("**   Version = %s\r\n", __APP_BIN_VERSION);
-	_Pf("**   Copyright@eobject 2020\r\n");
-	_Pf("********************************\r\n\r\n");
+	_P("\r\n");
+	_P("********************************\r\n");
+	_P("**   EOIOTAPP\r\n");
+	_P("**   Type = %s\r\n", __APP_BIN_TYPE);
+	_P("**   Version = %s\r\n", __APP_BIN_VERSION);
+	_P("**   Copyright@eobject 2020\r\n");
+	_P("********************************\r\n\r\n");
 
 	osThreadDef(taskMain, f_Task_Main, osPriorityHigh, 0, 512);
 	taskMainHandle = osThreadCreate(osThread(taskMain), NULL);

@@ -15,6 +15,9 @@
 #include "stm32f4xx_ll_usart.h"
 #include "stm32f4xx_ll_dma.h"
 #include "stm32f4xx_ll_iwdg.h"
+#include "stm32f4xx_ll_utils.h"
+
+#include "eos_inc.h"
 
 #include "eos_buffer.h"
 #include "eob_date.h"
@@ -24,20 +27,20 @@
 #include <stdarg.h>
 #include <string.h>
 
-#ifdef _DEBUG_TASK_
-
-#include "cmsis_os.h"
-
-#define PRINT_ASYNC // 异步打印
-
 // 双缓存输出，提高并发效率
 #define DEBUG_OUTPUT_CACHE_SIZE		8192
 char* s_DebugOutputCache1 = NULL;
 char* s_DebugOutputCache2 = NULL;
 int s_DebugOutputCacheLength1 = 0;
 
+#ifdef _DEBUG_TASK_
+
+#include "cmsis_os.h"
+
+#define PRINT_ASYNC // 异步打印
+
 #define TASK_LOCK_BEGIN()		vTaskSuspendAll() // 进入锁
-#define TASK_LOCK_END()		xTaskResumeAll() // 进入锁
+#define TASK_LOCK_END()			xTaskResumeAll() // 进入锁
 
 #else // #ifdef _DEBUG_TASK_
 
@@ -48,18 +51,22 @@ int s_DebugOutputCacheLength1 = 0;
 
 #define PRINT_WARNING 				"\n*** **** [%4d/%4d] *** ***\n\n"
 
-#define UART_DEBUG 					USART1
-#define DMA_DEBUG					DMA2
-#define DMA_STREAM_DEBUG			LL_DMA_STREAM_2
+#define UART_DEBUG 						USART1
+#define DMA_DEBUG						DMA2
+#define DMA_STREAM_DEBUG_INPUT			LL_DMA_STREAM_2
+#define DMA_STREAM_DEBUG_OUTPUT			LL_DMA_STREAM_7
 
 // 缓存大小，要保证消费大于生产
 #define DEBUG_BUFFER_SIZE			2048
 // DMA输入数据缓存
 D_STATIC_BUFFER_DECLARE(s_BufferDebugInput, DEBUG_BUFFER_SIZE)
-// DMA信息
+// DMA输入信息
 static EOTDMAInfo s_DMAInfoDebugInput;
 
-
+// DMA输出数据缓存
+D_STATIC_BUFFER_DECLARE(s_BufferDebugOutput, DEBUG_BUFFER_SIZE)
+// DMA输出信息
+static EOTDMAInfo s_DMAInfoDebugOutput;
 
 
 //#pragma import(__use_no_semihosting)
@@ -119,18 +126,21 @@ int _write(int file, char* ptr, int len)
 
 void EOB_Debug_Init(void)
 {
+	// 分配DMA输入缓存
 	D_STATIC_BUFFER_INIT(s_BufferDebugInput, DEBUG_BUFFER_SIZE)
 
-	// 分配输入缓存
+	// 分配DMA输出缓存
+	D_STATIC_BUFFER_INIT(s_BufferDebugOutput, DEBUG_BUFFER_SIZE)
 
-#ifdef PRINT_ASYNC
-
+	// 分配输出缓存
 	s_DebugOutputCache1 = malloc(DEBUG_OUTPUT_CACHE_SIZE);
 	if (s_DebugOutputCache1 == NULL)
 	{
 		printf("*** Memory limit\n");
 	}
 	s_DebugOutputCacheLength1 = 0;
+
+#ifdef PRINT_ASYNC
 
 	s_DebugOutputCache2 = malloc(DEBUG_BUFFER_SIZE);
 	if (s_DebugOutputCache2 == NULL)
@@ -148,18 +158,31 @@ void EOB_Debug_Init(void)
 //	LL_USART_EnableIT_RXNE(UART_DEBUG);
 
 	// 配置DMA
-	EOB_DMA_Recv_Init(&s_DMAInfoDebugInput,
-			DMA_DEBUG, DMA_STREAM_DEBUG, (uint32_t)&(UART_DEBUG->DR),
-			&s_BufferDebugInput);
 
-	// DMA中断
+	EOB_DMA_Recv_Init(&s_DMAInfoDebugInput,
+			DMA_DEBUG, DMA_STREAM_DEBUG_INPUT, (uint32_t)&(UART_DEBUG->DR),
+			&s_BufferDebugInput);
+	// DMA接收中断
 	LL_USART_EnableDMAReq_RX(UART_DEBUG);
+
+	EOB_DMA_Recv_Init(&s_DMAInfoDebugOutput,
+			DMA_DEBUG, DMA_STREAM_DEBUG_OUTPUT, (uint32_t)&(UART_DEBUG->DR),
+			&s_BufferDebugOutput);
+	// DMA发送中断
+	LL_USART_EnableDMAReq_TX(UART_DEBUG);
 }
 
+/**
+ * 移除中断，防止跳转loader时异常
+ */
 void EOB_Debug_DeInit(void)
 {
-	LL_DMA_DisableStream(DMA_DEBUG, DMA_STREAM_DEBUG);
-	LL_DMA_DeInit(DMA_DEBUG, DMA_STREAM_DEBUG);
+	LL_DMA_DisableStream(DMA_DEBUG, DMA_STREAM_DEBUG_INPUT);
+	LL_DMA_DeInit(DMA_DEBUG, DMA_STREAM_DEBUG_INPUT);
+	LL_USART_Disable(UART_DEBUG);
+
+	LL_DMA_DisableStream(DMA_DEBUG, DMA_STREAM_DEBUG_OUTPUT);
+	LL_DMA_DeInit(DMA_DEBUG, DMA_STREAM_DEBUG_OUTPUT);
 	LL_USART_Disable(UART_DEBUG);
 }
 
@@ -168,181 +191,104 @@ EOTBuffer* EOB_Debug_InputData(void)
 	return &s_BufferDebugInput;
 }
 
+
 /**
+ * 重定义
  * 基本的调试信息输出
  * 加入缓存，并不是真正打印
  */
-static char s_PrintInfo[DEBUG_BUFFER_SIZE];
-void EOB_Debug_Print(char* sInfo, ...)
+void EOG_PrintFormat(char* sInfo, ...)
 {
-	va_list args;
-	va_start(args, sInfo);
-	int len = vsnprintf(s_PrintInfo, DEBUG_BUFFER_SIZE-1, sInfo, args);
-	va_end(args);
-	s_PrintInfo[DEBUG_BUFFER_SIZE-1] = '\0';
-
-#ifdef PRINT_ASYNC
-
 	// 进入锁
 	TASK_LOCK_BEGIN();
 
-	if ((s_DebugOutputCacheLength1 + len) < (DEBUG_OUTPUT_CACHE_SIZE-1))
-	{
-		// 包含结束符
-		strncpy(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
-				s_PrintInfo, (DEBUG_OUTPUT_CACHE_SIZE - s_DebugOutputCacheLength1));
-	}
-	else
-	{
-		printf(PRINT_WARNING, len, s_DebugOutputCacheLength1);
-	}
+	va_list args;
+	va_start(args, sInfo);
+	int len = vsnprintf(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
+			(DEBUG_OUTPUT_CACHE_SIZE - s_DebugOutputCacheLength1), sInfo, args);
+	va_end(args);
+
+	// 长度偏移
 	s_DebugOutputCacheLength1 += len;
 
-	//printf("** [%d/%d] %s **\r\n", len, s_DebugOutputLength, s_DebugOutputBufer);
-
 	TASK_LOCK_END();
 	// 退出锁
-#else // #ifdef PRINT_ASYNC
-
-	s_PrintInfo[len]= '\0'; // 空语句
-
-	// 直接实时输出
-	printf(s_PrintInfo);
-	// 在输出中喂狗
-	// 若无输出，则认为已经死机
-	LL_IWDG_ReloadCounter(IWDG);
-#endif // #ifdef PRINT_ASYNC
-
 }
+
 
 /**
- * 打印一行格式化时间的信息
+ * 重定义
+ * 输出换行
  */
-void EOB_Debug_PrintLine(char* sInfo, ...)
+void EOG_PrintLine(void)
 {
-	EOTDate tpDate;
-	EOB_Date_Get(&tpDate);
-
-	va_list args;
-	va_start(args, sInfo);
-	int len = vsnprintf(s_PrintInfo, DEBUG_BUFFER_SIZE-1, sInfo, args);
-	va_end(args);
-	s_PrintInfo[DEBUG_BUFFER_SIZE-1] = '\0';
-
-#ifdef PRINT_ASYNC
 	// 进入锁
 	TASK_LOCK_BEGIN();
 
-	int pos = s_DebugOutputCacheLength1;
-	if ((s_DebugOutputCacheLength1 + len + 17) < (DEBUG_OUTPUT_CACHE_SIZE-1))
+	if (s_DebugOutputCacheLength1 < (DEBUG_OUTPUT_CACHE_SIZE - 1))
 	{
-		snprintf(&s_DebugOutputCache1[pos],
-				(DEBUG_OUTPUT_CACHE_SIZE - pos),
-				"[%02d/%02d %02d:%02d:%02d]",
-				tpDate.month, tpDate.date, tpDate.hour, tpDate.minute, tpDate.second);
-		pos += 16;
-
-		strncpy(&s_DebugOutputCache1[pos], s_PrintInfo, (DEBUG_OUTPUT_CACHE_SIZE - pos));
-		pos += len;
-
-		s_DebugOutputCache1[pos] = '\n';
-		++pos;
-		s_DebugOutputCache1[pos] = '\0'; // 结束符
-
-		// 不计算结束符
-		s_DebugOutputCacheLength1 = pos;
-	}
-	else
-	{
-		printf(PRINT_WARNING, len, s_DebugOutputCacheLength1);
-	}
-
-	TASK_LOCK_END();
-	// 退出锁
-#else // #ifdef PRINT_ASYNC
-
-	s_PrintInfo[len]= '\0'; // 空语句
-
-	// 直接实时输出
-	printf("[%02d/%02d %02d:%02d:%02d]%s\n",
-			tpDate.month, tpDate.date, tpDate.hour, tpDate.minute, tpDate.second,
-			s_PrintInfo);
-
-	// 在输出中喂狗
-	// 若无输出，则认为已经死机
-	LL_IWDG_ReloadCounter(IWDG);
-#endif // #ifdef PRINT_ASYNC
-}
-
-// 格式化输出时间
-void EOB_Debug_PrintTime()
-{
-	EOTDate tpDate;
-	EOB_Date_Get(&tpDate);
-
-#ifdef PRINT_ASYNC
-	// 进入锁
-	TASK_LOCK_BEGIN();
-
-	if ((s_DebugOutputCacheLength1 + 16) < (DEBUG_OUTPUT_CACHE_SIZE-1))
-	{
-		int len = snprintf(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
-				(DEBUG_OUTPUT_CACHE_SIZE - s_DebugOutputCacheLength1),
-				"[%02d/%02d %02d:%02d:%02d]",
-				tpDate.month, tpDate.date, tpDate.hour, tpDate.minute, tpDate.second);
-		s_DebugOutputCacheLength1 += len;
+		s_DebugOutputCache1[s_DebugOutputCacheLength1] = '\n';
+		s_DebugOutputCacheLength1++;
 		s_DebugOutputCache1[s_DebugOutputCacheLength1] = '\0';
 	}
-	else
-	{
-		printf(PRINT_WARNING, 16, s_DebugOutputCacheLength1);
-	}
 
 	TASK_LOCK_END();
 	// 退出锁
-#else // #ifdef PRINT_ASYNC
+}
 
-	sprintf(s_PrintInfo,
+
+/**
+ * 格式化输出时间
+ */
+void EOG_PrintTime(void)
+{
+	EOTDate tpDate;
+	EOB_Date_Get(&tpDate);
+
+	// 进入锁
+	TASK_LOCK_BEGIN();
+
+	int len = snprintf(&s_DebugOutputCache1[s_DebugOutputCacheLength1],
+			(DEBUG_OUTPUT_CACHE_SIZE - s_DebugOutputCacheLength1),
 			"[%02d/%02d %02d:%02d:%02d]",
 			tpDate.month, tpDate.date, tpDate.hour, tpDate.minute, tpDate.second);
-	// 直接实时输出
-	printf(s_PrintInfo);
-	// 在输出中喂狗
-	// 若无输出，则认为已经死机
-	LL_IWDG_ReloadCounter(IWDG);
-#endif // #ifdef PRINT_ASYNC
+	s_DebugOutputCacheLength1 += len;
+
+	TASK_LOCK_END();
+	// 退出锁
 }
 
 /**
  * 打印内存，主要用于调试
  */
-void EOB_Debug_PrintBin(void* pData, int nLength)
+void EOG_PrintBin(void* pData, int nLength)
 {
 	uint8_t* pBuffer = pData;
 	int i, pos;
 
 	int nLength0 = nLength;
 
-	// 防止溢出
-	int count = DEBUG_BUFFER_SIZE / 3 - 5;
-	if (nLength < count) count = nLength;
+	// 限制，最多输出64个，调试用
+	if (nLength > 64) nLength = 64;
 
-	// 限制，最多输出200个，调试用
-	if (nLength > 200) nLength = 200;
+	pos = s_DebugOutputCacheLength1;
 
-#ifdef PRINT_ASYNC
 	// 进入锁
 	TASK_LOCK_BEGIN();
 
-	if ((s_DebugOutputCacheLength1 + nLength * 3) < (DEBUG_OUTPUT_CACHE_SIZE-1))
+	if ((s_DebugOutputCacheLength1 + nLength * 3) < (DEBUG_OUTPUT_CACHE_SIZE-8))
 	{
-		pos = s_DebugOutputCacheLength1;
-		pos += snprintf(&s_DebugOutputCache1[pos], (DEBUG_OUTPUT_CACHE_SIZE - pos), "<%04d> ", nLength0);
-
 		for (i=0; i<nLength; i++)
 		{
-			pos += snprintf(&s_DebugOutputCache1[pos], (DEBUG_OUTPUT_CACHE_SIZE - pos), "%02X ", *pBuffer);
+			pos += snprintf(&s_DebugOutputCache1[pos],
+					(DEBUG_OUTPUT_CACHE_SIZE - pos), "%02X ", *pBuffer);
 			++pBuffer;
+		}
+		if (nLength0 != nLength)
+		{
+			// 表示截断
+			pos += snprintf(&s_DebugOutputCache1[pos],
+					(DEBUG_OUTPUT_CACHE_SIZE - pos), " ....");
 		}
 
 		s_DebugOutputCache1[pos] = '\n';
@@ -353,41 +299,59 @@ void EOB_Debug_PrintBin(void* pData, int nLength)
 	}
 	else
 	{
-		printf(PRINT_WARNING, nLength * 3, s_DebugOutputCacheLength1);
+		pos += snprintf(&s_DebugOutputCache1[pos],
+				(DEBUG_OUTPUT_CACHE_SIZE - pos), "<%04d> ... ... ", nLength0);
 	}
 
 	TASK_LOCK_END();
 	// 退出锁
-#else // #ifdef PRINT_ASYNC
+}
 
-	// 直接实时输出
-	snprintf(s_PrintInfo, DEBUG_BUFFER_SIZE, "<%04d> ", nLength0);
-	printf(s_PrintInfo);
+void EOG_PrintSend(void)
+{
+	// 进入锁
+	TASK_LOCK_BEGIN();
 
-	pos = 0;
-	for (i=0; i<nLength; i++)
+	// 安全保证字符结束
+	s_DebugOutputCache1[DEBUG_BUFFER_SIZE-1] = '\0';
+
+	EOTDMAInfo* tDMAInfo = &s_DMAInfoDebugOutput;
+
+	int pos = 0;
+	int count = s_DebugOutputCacheLength1;
+	int i, write;
+	for (i=0; i<8; i++)
 	{
-		pos += snprintf(&s_PrintInfo[pos], (DEBUG_BUFFER_SIZE - pos), "%02X ", *pBuffer);
-		++pBuffer;
-	}
+		if (pos >= count) break;
 
-	if (nLength != count)
-	{
-		s_PrintInfo[pos] = '.';
-		++pos;
-		s_PrintInfo[pos] = '.';
-		++pos;
-	}
+		write = DMA_BUFFER_SIZE;
+		if (write > count) write = count;
 
-	s_PrintInfo[pos] = '\n';
-	++pos;
-	s_PrintInfo[pos] = '\0';
-	// 直接实时输出
-	printf(s_PrintInfo);
+		// 一定要先等发送完成
+		while (LL_USART_IsActiveFlag_TC(UART_DEBUG) == RESET) { }
+
+		EOS_Buffer_Copy(tDMAInfo->data, &s_DebugOutputCache1[pos], write);
+		EOB_DMA_Send(tDMAInfo);
+
+		LL_mDelay(1);
+
+		pos += write;
+		count -= write;
+	}
+//	if (s_DebugOutputCacheLength1 > 0)
+//	{
+//		printf(s_DebugOutputCache1);
+//	}
+
+	// 输出之后重置
+	s_DebugOutputCacheLength1 = 0;
+
+	TASK_LOCK_END();
+	// 退出锁
+
 	// 在输出中喂狗
 	// 若无输出，则认为已经死机
 	LL_IWDG_ReloadCounter(IWDG);
-#endif // #ifdef PRINT_ASYNC
 }
 
 // 最后剩余大小
@@ -402,25 +366,12 @@ void EOB_Debug_Update(void)
 	int nLen = EOB_DMA_Recv(&s_DMAInfoDebugInput);
 	if (nLen < 0)
 	{
-		printf("**** Debug DMA Error\n");
+		_T("**** Debug DMA Error\n");
 	}
 	else if (nLen > 0)
 	{
 		s_BufferDebugInput.buffer[s_BufferDebugInput.length] = '\0';
-		printf("Debug DMA 接收数据 [%d]\n", s_BufferDebugInput.length);
-//		pos = 0;
-//		pBuffer = s_BufferDebugInput.buffer;
-//		for (i=0; i<s_BufferDebugInput.length; i++)
-//		{
-//			pos += sprintf(&s_PrintInfo[pos], "%02X ", *pBuffer);
-//			++pBuffer;
-//		}
-//
-//		s_PrintInfo[pos] = '\n';
-//		++pos;
-//		s_PrintInfo[pos] = '\0';
-//		// 直接实时输出
-//		printf(s_PrintInfo);
+		_T("Debug DMA 接收数据 [%d]\n", s_BufferDebugInput.length);
 	}
 
 #ifdef PRINT_ASYNC

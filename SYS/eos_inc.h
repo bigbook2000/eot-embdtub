@@ -82,4 +82,28 @@ int EOG_Base64Encode(uint8_t* pBuffer, int nLength, char* pBase64, char cFlag);
 // base64转换为字节流
 int EOG_Base64Decode(char* pBase64, int nLength, uint8_t* pBuffer, char cFlag);
 
+//
+// 调试输出
+// 需要在串口输出中重定义
+//
+
+
+
+void EOG_PrintFormat(char* sInfo, ...);
+void EOG_PrintTime(void);
+void EOG_PrintLine(void);
+void EOG_PrintBin(void* pData, int nLength);
+void EOG_PrintSend(void);
+
+// 输出不带任何标识
+#define _P(...) EOG_PrintFormat(__VA_ARGS__);EOG_PrintSend()
+// 格式化输出，带换行
+#define _T(...) EOG_PrintTime();EOG_PrintFormat(__VA_ARGS__);EOG_PrintLine();EOG_PrintSend()
+// 调试
+#define _D(...) EOG_PrintTime();EOG_PrintFormat("[%s:%d]", __FILE__, __LINE__);EOG_PrintFormat(__VA_ARGS__);EOG_PrintLine();EOG_PrintSend()
+
+// 输出二进制
+#define _Tmb(p, n) EOG_PrintBin(p, n);EOG_PrintSend()
+
+
 #endif /* EOS_INC_H_ */

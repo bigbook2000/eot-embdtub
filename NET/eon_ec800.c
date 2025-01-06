@@ -128,7 +128,9 @@ uint8_t EON_Gprs_CSQ(void)
 
 
 
-// 向串口写数据
+/**
+ * 向串口写数据
+ */
 static int USARTSendData(uint8_t* pData, int nLength)
 {
 	int i;

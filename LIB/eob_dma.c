@@ -38,12 +38,14 @@ void EOB_DMA_Send_Init(EOTDMAInfo* tDMAInfo, DMA_TypeDef* tDMATypeDef, uint32_t 
 
 	LL_DMA_SetMemoryAddress(tDMAInfo->dma_t, tDMAInfo->stream_t, (uint32_t)tData->buffer);
 	LL_DMA_SetPeriphAddress(tDMAInfo->dma_t, tDMAInfo->stream_t, nPeriphAddress);
+
+	LL_DMA_EnableStream(tDMAInfo->dma_t, tDMAInfo->stream_t);
 }
 
 void EOB_DMA_Send(EOTDMAInfo* tDMAInfo)
 {
 	EOTBuffer* tData = tDMAInfo->data;
-
+	// ÏÈËø¶¨
 	LL_DMA_DisableStream(tDMAInfo->dma_t, tDMAInfo->stream_t);
 
 	switch (tDMAInfo->stream_t)

@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "eos_inc.h"
 #include "eos_buffer.h"
 
 //
@@ -34,27 +35,5 @@ void EOB_Debug_DeInit(void);
 EOTBuffer* EOB_Debug_InputData(void);
 // DMA模式
 void EOB_Debug_Update(void);
-
-void EOB_Debug_Print(char* sInfo, ...);
-void EOB_Debug_PrintLine(char* sInfo, ...);
-void EOB_Debug_PrintTime(void);
-void EOB_Debug_PrintBin(void* pData, int nLength);
-
-// 输出
-#define _P(...) EOB_Debug_Print(__VA_ARGS__)
-// 格式化输出，带换行
-#define _T(...) EOB_Debug_PrintLine(__VA_ARGS__)
-// 调试
-#define _D(...) EOB_Debug_PrintTime();EOB_Debug_Print("[%s:%d]", __FILE__, __LINE__);EOB_Debug_Print(__VA_ARGS__);EOB_Debug_Print("\n")
-
-// 输出时间
-#define _Tt() EOB_Debug_PrintTime()
-// 输出二进制
-#define _Tmb(p, n) EOB_Debug_PrintBin(p, n)
-
-// 原始打印
-#define _Pf(...) printf(__VA_ARGS__)
-// 输出换行
-#define _Pn() printf("\n")
 
 #endif /* EOB_DEBUG_H_ */

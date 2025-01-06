@@ -121,7 +121,7 @@ static int SettingParseLine(char* pLine, int nCount)
 	*p2 = '\0';
 	if (n1 >= KEY_LENGTH || n2 >= VALUE_SIZE)
 	{
-		_Pf("配置参数太长 [%d/%d]: [%d]%s = [%d]%s", i, nCount, n1, sKey, n2, sVal);
+		_T("配置参数太长 [%d/%d]: [%d]%s = [%d]%s", i, nCount, n1, sKey, n2, sVal);
 		return (i + 1);
 	}
 
@@ -129,7 +129,7 @@ static int SettingParseLine(char* pLine, int nCount)
 	// 添加到队列中
 	EOS_KeyValue_Set(tpList, sKey, sVal);
 
-	_Pf("@@[%03d/%03d]: %24s = %s;\r\n", i, nCount, sKey, sVal);
+	_P("@@[%03d/%03d]: %24s = %s;\r\n", i, nCount, sKey, sVal);
 
 	return (i + 1);
 }
@@ -159,7 +159,7 @@ void F_LoadAppSetting(void)
 
 	_T("加载配置参数 [%08lX] %d", nAddress, nDataLength);
 
-	_Pf("@@-- Setting Begin\r\n");
+	_P("@@-- Setting Begin\r\n");
 
 	EOTBuffer tBuffer;
 	EOS_Buffer_Create(&tBuffer, SIZE_1K);
@@ -198,7 +198,7 @@ void F_LoadAppSetting(void)
 
 	EOS_Buffer_Destory(&tBuffer);
 
-	_Pf("@@-- Setting End\r\n");
+	_P("@@-- Setting End\r\n");
 }
 
 /**
