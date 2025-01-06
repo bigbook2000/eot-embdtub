@@ -1,11 +1,13 @@
 # eot-embdtub
 
 #### 介绍
-EOT边缘终端EOTBox嵌入式应用STM32模块代码。硬件使用意法半导体公司STM32F407VET6，采用STM32CubeIDE 1.12.1编写，使用CH340C支持USB串口日志打印输出，支持ISP直接烧录，支持移远EC800 4G Cat1模块指令，支持R485 ModbusRTU传感器输入，支持2路ADC模拟量输入，支持2路开关量输入，2路开关输出。
+EOT边缘终端EOTBox嵌入式应用STM32模块代码。硬件使用意法半导体公司STM32F407VET6，采用STM32CubeIDE 1.12.1编写，全部使用底层LL库，不使用任何HAL代码。串口输入输出支持DMA。
+
+使用CH340C支持USB串口日志打印输出，支持ISP直接烧录，支持移远EC800 4G Cat1模块指令，支持R485 ModbusRTU传感器输入，支持2路ADC模拟量输入，支持2路开关量输入，2路开关输出。
 
 提供了HJ212协议包传输解析，支持远程配置，远程升级（需要eot-embiap Loader支持），后台支持EOT物联网大数据平台eot-server.net（开源）。
 
-若需要对应的硬件可以联系。
+免费提供对应的电路，模块化设计，若需要硬件可以联系。
 
 #### 软件架构
 参考[wiki详细说明](https://gitee.com/bigbook2000/eot-embdtub/wikis/pages)
