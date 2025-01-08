@@ -26,13 +26,15 @@
 #include "AppSetting.h"
 #include "Global.h"
 
+#define DEVICE_UART_RECV_SIZE	256
+
 static EOTDMAInfo s_DMAInfoRecv3;
 static EOTDMAInfo s_DMAInfoRecv4;
 static EOTDMAInfo s_DMAInfoRecv5;
 
-D_STATIC_BUFFER_DECLARE(s_DMABufferRecv3, SIZE_256)
-D_STATIC_BUFFER_DECLARE(s_DMABufferRecv4, SIZE_256)
-D_STATIC_BUFFER_DECLARE(s_DMABufferRecv5, SIZE_256)
+D_STATIC_BUFFER_DECLARE(s_DMABufferRecv3, DEVICE_UART_RECV_SIZE)
+D_STATIC_BUFFER_DECLARE(s_DMABufferRecv4, DEVICE_UART_RECV_SIZE)
+D_STATIC_BUFFER_DECLARE(s_DMABufferRecv5, DEVICE_UART_RECV_SIZE)
 
 static EOTDMAInfo s_DMAInfoSend3;
 D_STATIC_BUFFER_DECLARE(s_DMABufferSend3, SIZE_128)
@@ -168,13 +170,13 @@ static void UartInit(char* sName, USART_TypeDef* uart,
 	// 配置DMA
 	EOB_DMA_Recv_Init(pDMAInfoRecv, dmaRecv,
 			nStreamRecv, (uint32_t)&(uart->DR),
-			pBufferRecv);
+			DEVICE_UART_RECV_SIZE);
 	// DMA接收
 	LL_USART_EnableDMAReq_RX(uart);
 
 	EOB_DMA_Send_Init(pDMAInfoSend, dmaSend,
 			nStreamSend, (uint32_t)&(uart->DR),
-			pBufferSend);
+			DEVICE_UART_RECV_SIZE);
 	// DMA发送
 	LL_USART_EnableDMAReq_TX(uart);
 }
@@ -185,7 +187,7 @@ static void DMAUpdate(EOTDMAInfo* pDMAInfo, EOTBuffer* pBuffer)
 	// 未初始化
 	if (pDMAInfo->dma_t == NULL) return;
 
-	int ret = EOB_DMA_Recv(pDMAInfo);
+	int ret = EOB_DMA_Recv(pDMAInfo, pBuffer);
 	if (ret < 0)
 	{
 		_T("**** DMA Error [%d] %d - %d",
@@ -199,9 +201,9 @@ static void DMAUpdate(EOTDMAInfo* pDMAInfo, EOTBuffer* pBuffer)
 void F_UART_DMA_Init(void)
 {
 	// 初始化缓存
-	D_STATIC_BUFFER_INIT(s_DMABufferRecv3, SIZE_256);
-	D_STATIC_BUFFER_INIT(s_DMABufferRecv4, SIZE_256);
-	D_STATIC_BUFFER_INIT(s_DMABufferRecv5, SIZE_256);
+	D_STATIC_BUFFER_INIT(s_DMABufferRecv3, DEVICE_UART_RECV_SIZE);
+	D_STATIC_BUFFER_INIT(s_DMABufferRecv4, DEVICE_UART_RECV_SIZE);
+	D_STATIC_BUFFER_INIT(s_DMABufferRecv5, DEVICE_UART_RECV_SIZE);
 
 	D_STATIC_BUFFER_INIT(s_DMABufferSend3, SIZE_128);
 	D_STATIC_BUFFER_INIT(s_DMABufferSend4, SIZE_128);
@@ -237,8 +239,7 @@ void F_UART_DMA_Send(TDevInfo* pDevInfo)
 	else if (pDevInfo->type == DEVICE_TYPE_UART5)
 		tDMAInfo = &s_DMAInfoSend5;
 
-	EOS_Buffer_Copy(tDMAInfo->data, pDevInfo->param, pDevInfo->param_count);
-	EOB_DMA_Send(tDMAInfo);
+	EOB_DMA_Send(tDMAInfo, pDevInfo->param, pDevInfo->param_count);
 
 	//			LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_7, (uint32_t)t);
 	//
@@ -250,17 +251,17 @@ void F_UART_DMA_Send(TDevInfo* pDevInfo)
 
 EOTBuffer* F_UART_DMA_Buffer(TDevInfo* pDevInfo)
 {
-	EOTDMAInfo* tDMAInfo;
+	EOTBuffer* tBuffer = NULL;
 	if (pDevInfo->type == DEVICE_TYPE_UART3)
-		tDMAInfo = &s_DMAInfoRecv3;
+		tBuffer = &s_DMABufferRecv3;
 	else if (pDevInfo->type == DEVICE_TYPE_UART4)
-		tDMAInfo = &s_DMAInfoRecv4;
+		tBuffer = &s_DMABufferRecv4;
 	else if (pDevInfo->type == DEVICE_TYPE_UART5)
-		tDMAInfo = &s_DMAInfoRecv5;
+		tBuffer = &s_DMABufferRecv5;
 	else
 		return NULL;
 
-	return tDMAInfo->data;
+	return tBuffer;
 }
 
 

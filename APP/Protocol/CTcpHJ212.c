@@ -684,6 +684,7 @@ static void OnTcpHJ212_3104(EOTConnect *tConnect, char* pCPStr, char* pSendBuffe
 		EOG_KeyValueChar(ppArray[i], '=', &sKey, &sVal);
 		if (sKey != NULL && sVal != NULL)
 		{
+			_T("Key = %s, Value = %s", sKey, sVal);
 			if (!(sKey[0] == 'T'
 				&& sKey[1] == 'G'
 				&& sKey[2] == 'P'
@@ -691,8 +692,8 @@ static void OnTcpHJ212_3104(EOTConnect *tConnect, char* pCPStr, char* pSendBuffe
 				&& sKey[4] == 'u'
 				&& sKey[5] == 't')) continue;
 
-			nId = atoi(&sKey[1]);
-			nSet = atoi(&sVal[1]);
+			nId = atoi(&sKey[6]);
+			nSet = (int)(atof(sVal));
 
 			nSet = F_SysSwitch_Output_Set((uint8_t)nId, (uint8_t)nSet);
 			len += sprintf(&pSendBuffer[len], ";TGPOut%d=%d", nId, nSet);

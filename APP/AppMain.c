@@ -218,6 +218,12 @@ void AppMain(void)
 //	char* s = pvPortMalloc(CFG_BUFFER_SIZE);
 //	vPortFree(s);
 
+	//LL_GPIO_SetOutputPin(GPIOD, LL_GPIO_PIN_5);
+	//LL_GPIO_ResetOutputPin(GPIOD, LL_GPIO_PIN_5);
+
+	//F_SysSwitch_Output_Set(3, 0);
+	//F_SysSwitch_Output_Set(4, 1);
+
 	while (1)
 	{
 		osDelay(100);

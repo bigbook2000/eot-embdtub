@@ -63,8 +63,8 @@ D_STATIC_BUFFER_DECLARE(s_BufferDebugInput, DEBUG_BUFFER_SIZE)
 // DMA输入信息
 static EOTDMAInfo s_DMAInfoDebugInput;
 
-// DMA输出数据缓存
-D_STATIC_BUFFER_DECLARE(s_BufferDebugOutput, DEBUG_BUFFER_SIZE)
+//// DMA输出数据缓存
+//D_STATIC_BUFFER_DECLARE(s_BufferDebugOutput, DEBUG_BUFFER_SIZE)
 // DMA输出信息
 static EOTDMAInfo s_DMAInfoDebugOutput;
 
@@ -129,9 +129,6 @@ void EOB_Debug_Init(void)
 	// 分配DMA输入缓存
 	D_STATIC_BUFFER_INIT(s_BufferDebugInput, DEBUG_BUFFER_SIZE)
 
-	// 分配DMA输出缓存
-	D_STATIC_BUFFER_INIT(s_BufferDebugOutput, DEBUG_BUFFER_SIZE)
-
 	// 分配输出缓存
 	s_DebugOutputCache1 = malloc(DEBUG_OUTPUT_CACHE_SIZE);
 	if (s_DebugOutputCache1 == NULL)
@@ -161,13 +158,13 @@ void EOB_Debug_Init(void)
 
 	EOB_DMA_Recv_Init(&s_DMAInfoDebugInput,
 			DMA_DEBUG, DMA_STREAM_DEBUG_INPUT, (uint32_t)&(UART_DEBUG->DR),
-			&s_BufferDebugInput);
+			DEBUG_BUFFER_SIZE);
 	// DMA接收中断
 	LL_USART_EnableDMAReq_RX(UART_DEBUG);
 
 	EOB_DMA_Recv_Init(&s_DMAInfoDebugOutput,
 			DMA_DEBUG, DMA_STREAM_DEBUG_OUTPUT, (uint32_t)&(UART_DEBUG->DR),
-			&s_BufferDebugOutput);
+			DEBUG_BUFFER_SIZE);
 	// DMA发送中断
 	LL_USART_EnableDMAReq_TX(UART_DEBUG);
 }
@@ -324,14 +321,13 @@ void EOG_PrintSend(void)
 	{
 		if (pos >= count) break;
 
-		write = DMA_BUFFER_SIZE;
+		write = tDMAInfo->data->size;
 		if (write > count) write = count;
 
 		// 一定要先等发送完成
 		while (LL_USART_IsActiveFlag_TC(UART_DEBUG) == RESET) { }
 
-		EOS_Buffer_Copy(tDMAInfo->data, &s_DebugOutputCache1[pos], write);
-		EOB_DMA_Send(tDMAInfo);
+		EOB_DMA_Send(tDMAInfo, &s_DebugOutputCache1[pos], write);
 
 		LL_mDelay(1);
 
@@ -363,7 +359,7 @@ void EOB_Debug_Update(void)
 {
 	//uint8_t* pBuffer;
 	//int i, pos;
-	int nLen = EOB_DMA_Recv(&s_DMAInfoDebugInput);
+	int nLen = EOB_DMA_Recv(&s_DMAInfoDebugInput, &s_BufferDebugInput);
 	if (nLen < 0)
 	{
 		_T("**** Debug DMA Error\n");

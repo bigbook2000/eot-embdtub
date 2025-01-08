@@ -56,7 +56,7 @@ static EOTDMAInfo s_GprsDMAInfo;
 
 // 有效数据缓存，避免交换超过2000的数据
 #define GPRS_DATA_SIZE	2048
-D_STATIC_BUFFER_DECLARE(s_GprsDMABuffer, GPRS_DATA_SIZE)
+//D_STATIC_BUFFER_DECLARE(s_GprsDMABuffer, GPRS_DATA_SIZE)
 // 二级缓存，用于检查首尾
 D_STATIC_BUFFER_DECLARE(s_GprsRecvBuffer, GPRS_DATA_SIZE)
 // 返回收到命令
@@ -493,7 +493,6 @@ void EON_Gprs_Power(void)
 	s_LastActiveTick = 0L;
 
 	// 清除接收缓存
-	EOS_Buffer_Clear(&s_GprsDMABuffer);
 	EOS_Buffer_Clear(&s_GprsRecvData);
 
 	// 接收数据标识
@@ -1118,21 +1117,15 @@ static int GprsParseDataLine(int nLine, EOTGprsCmd* pCmd, EOTBuffer* tRecvBuffer
 static void GprsRecvProcess(uint64_t tick)
 {
 	int i;
-	// 调用DMA
-	// DMARecvBuffer();
-	if (s_GprsDMABuffer.length >= GPRS_DATA_SIZE)
-	{
-		_T("**** DMA Overflow %d - %d",
-						s_GprsDMAInfo.data->length, GPRS_DATA_SIZE);
-		// 数据太多了
-		EOS_Buffer_Clear(&s_GprsDMABuffer);
-	}
 
-	int ret = EOB_DMA_Recv(&s_GprsDMAInfo);
+	// 取出DMA缓存，放入二级命令缓存
+	int ret = EOB_DMA_Recv(&s_GprsDMAInfo, &s_GprsRecvBuffer);
 	if (ret < 0)
 	{
-		_T("**** DMA Error [%d] %d - %d",
-				s_GprsDMAInfo.data->length, s_GprsDMAInfo.retain, s_GprsDMAInfo.retain_last);
+		_T("**** DMA Error [%d] %d - %d, Recv = %d",
+				s_GprsDMAInfo.data->length, s_GprsDMAInfo.retain, s_GprsDMAInfo.retain_last,
+				s_GprsRecvBuffer.length);
+		EOS_Buffer_Clear(&s_GprsRecvBuffer);
 	}
 
 	if (ret == 0) return;
@@ -1141,9 +1134,6 @@ static void GprsRecvProcess(uint64_t tick)
 	s_LastActiveTick = tick;
 	_T("**** DMA GPRS %d, %d",
 		s_GprsDMAInfo.data->length, s_GprsRecvBuffer.length);
-
-	// 取出DMA缓存，放入二级命令缓存
-	EOS_Buffer_PushBuffer(&s_GprsRecvBuffer, &s_GprsDMABuffer);
 
 	// 检查命令行是否存在指定标识
 	// OK、ERROR 或+CME ERROR: <err>
@@ -1177,7 +1167,6 @@ static void GprsRecvProcess(uint64_t tick)
 static void GprsSendData(EOTGprsCmd* pCmd)
 {
 	// 先清空命令接收数据
-	EOS_Buffer_Clear(&s_GprsDMABuffer);
 	EOS_Buffer_Clear(&s_GprsRecvData);
 
 	if (pCmd->send_mode == GPRS_MODE_AT)
@@ -1240,7 +1229,6 @@ void EON_Gprs_Init(void)
 	EOS_Timer_Init(&s_TimerCmdTimeout, TIMER_ID_CMD, 30000, TIMER_LOOP_ONCE, NULL, (EOFuncTimer)OnTimer_CmdTimeout);
 
 	// 初始化缓存
-	D_STATIC_BUFFER_INIT(s_GprsDMABuffer, GPRS_DATA_SIZE);
 	D_STATIC_BUFFER_INIT(s_GprsRecvBuffer, GPRS_DATA_SIZE);
 	D_STATIC_BUFFER_INIT(s_GprsRecvData, GPRS_DATA_SIZE);
 
@@ -1264,7 +1252,7 @@ void EON_Gprs_Init(void)
 	// 配置DMA
 	EOB_DMA_Recv_Init(&s_GprsDMAInfo,
 			DMA_GPRS, DMA_STREAM_GPRS, (uint32_t)&(USART_GPRS->DR),
-			&s_GprsDMABuffer);
+			GPRS_DATA_SIZE);
 
 	// 串口接收DMA
 	LL_USART_EnableDMAReq_RX(USART_GPRS);

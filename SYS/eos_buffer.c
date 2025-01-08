@@ -71,6 +71,9 @@ int EOS_Buffer_Get(EOTBuffer* tpBuffer, int nPos, void* pData, int nLength)
 	return nLength;
 }
 
+/**
+ * 拷贝一块内存，从0开始
+ */
 int EOS_Buffer_CopyBuffer(EOTBuffer* tpBufferDst, EOTBuffer* tpBufferSrc)
 {
 	memcpy(tpBufferDst->buffer, tpBufferSrc->buffer, tpBufferSrc->length);
@@ -79,6 +82,9 @@ int EOS_Buffer_CopyBuffer(EOTBuffer* tpBufferDst, EOTBuffer* tpBufferSrc)
 	return tpBufferDst->length;
 }
 
+/**
+ * 拷贝一块内存，从0开始
+ */
 int EOS_Buffer_Copy(EOTBuffer* tpBuffer, void* pData, int nLength)
 {
 	memcpy(tpBuffer->buffer, pData, nLength);
@@ -128,6 +134,9 @@ int EOS_Buffer_Push(EOTBuffer* tpBuffer, void* pData, int nLength)
 
 /**
  * 将tpBufferSrc中的数据追加到tpBufferDst中
+ * 增加 tpBufferDst 长度
+ * 清空 tpBufferSrc 长度
+ *
  */
 int EOS_Buffer_PushBuffer(EOTBuffer* tpBufferDst, EOTBuffer* tpBufferSrc)
 {

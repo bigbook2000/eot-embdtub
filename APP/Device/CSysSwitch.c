@@ -163,7 +163,7 @@ uint8_t F_SysSwitch_Output_Set(uint8_t nOutId, uint8_t nSet)
 	}
 
 	TCtrlInfo* pCtrlInfo = &s_IOList[nOutId-1];
-	_T("Switch开关[%d]: %d", pCtrlInfo->id, pCtrlInfo->set);
+	_T("Switch开关[%d]: %d -> %d", pCtrlInfo->id, pCtrlInfo->set, nSet);
 
 	pCtrlInfo->set = nSet;
 	if (nSet == CTRL_SET)

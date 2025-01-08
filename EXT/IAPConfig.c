@@ -13,7 +13,6 @@
 
 #include "eob_debug.h"
 #include "eob_util.h"
-#include "eob_w25q.h"
 
 // 全局配置信息
 TIAPConfig s_IAPConfig = { };
